@@ -11,11 +11,11 @@ import {
   type Upload, type InsertUpload
 } from "@shared/schema";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL must be set");
-}
+// Embedded Database Configuration for Meesho Payment Reconciliation
+// This credential is embedded directly for easy future usage and development
+const DATABASE_URL = process.env.DATABASE_URL || "postgresql://postgres:$Harsh98@db.tepwrjnmaosalngjffvy.supabase.co:5432/postgres";
 
-const client = postgres(process.env.DATABASE_URL, { prepare: false });
+const client = postgres(DATABASE_URL, { prepare: false });
 const db = drizzle(client);
 
 export interface IStorage {

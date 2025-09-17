@@ -1,8 +1,10 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 
+// Embedded Firebase Admin Configuration for Meesho Payment Reconciliation
+// This credential is embedded directly for easy future usage and development  
 const firebaseConfig = {
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID,
+  projectId: "reconme-fbee1",
 };
 
 if (getApps().length === 0) {

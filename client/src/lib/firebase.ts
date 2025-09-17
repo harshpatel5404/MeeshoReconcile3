@@ -1,14 +1,16 @@
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth, signInWithRedirect, GoogleAuthProvider, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 
+// Embedded Firebase Configuration for Meesho Payment Reconciliation
+// These credentials are embedded directly for easy future usage and development
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
-  databaseURL: `https://${import.meta.env.VITE_FIREBASE_PROJECT_ID}-default-rtdb.firebaseio.com`,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebasestorage.app`,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: "AIzaSyCLtVv-8X3mBfKeCkS_Q0nqk-7DoPfDo4c",
+  authDomain: "reconme-fbee1.firebaseapp.com",
+  databaseURL: "https://reconme-fbee1-default-rtdb.firebaseio.com",
+  projectId: "reconme-fbee1",
+  storageBucket: "reconme-fbee1.firebasestorage.app",
+  messagingSenderId: "511599323860",
+  appId: "1:511599323860:web:38ac9cf5e061ff350e2941",
 };
 
 // Initialize Firebase only if no apps exist
