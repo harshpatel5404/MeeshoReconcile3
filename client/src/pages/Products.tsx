@@ -22,6 +22,8 @@ export default function Products() {
     queryKey: ['/api/products'],
   });
 
+  const productsArray = Array.isArray(products) ? products : [];
+
   const updateProductMutation = useMutation({
     mutationFn: async ({ sku, data }: { sku: string; data: any }) => {
       return apiRequest('PUT', `/api/products/${sku}`, data);
@@ -62,6 +64,23 @@ export default function Products() {
     });
   };
 
+  const calculateFinalPrice = (costPrice: number, packagingCost: number, gstPercent: number) => {
+    // Step 1: Take base Cost (₹)
+    const baseCost = costPrice || 0;
+    
+    // Step 2: Add Packaging cost (₹)
+    const costPlusPackaging = baseCost + (packagingCost || 0);
+    
+    // Step 3: Calculate GST amount
+    const gstAmount = (costPlusPackaging * (gstPercent || 0)) / 100;
+    
+    // Step 4: Add GST to base + packaging
+    const finalPrice = costPlusPackaging + gstAmount;
+    
+    // Step 5: Round to 2 decimals
+    return Math.round(finalPrice * 100) / 100;
+  };
+
   const handleBulkSetPackaging = () => {
     if (!bulkPackagingCost) {
       toast({
@@ -92,10 +111,10 @@ export default function Products() {
     });
   };
 
-  const filteredProducts = products?.filter((product: any) =>
+  const filteredProducts = productsArray.filter((product: any) =>
     product.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
     product.title.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || [];
+  );
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -197,80 +216,80 @@ export default function Products() {
               <table className="w-full">
                 <thead className="bg-muted/50">
                   <tr>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">S.No.</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">SKU</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Product Title</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Cost Price (₹)</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Packaging Cost (₹)</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Cost (₹)</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Packaging (₹)</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">GST (%)</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Total Orders</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Last Updated</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Final Price (₹)</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                         Loading products...
                       </td>
                     </tr>
                   ) : filteredProducts.length > 0 ? (
-                    filteredProducts.map((product: any) => (
-                      <tr key={product.id} className="hover:bg-muted/50" data-testid={`row-product-${product.sku}`}>
-                        <td className="px-4 py-3 text-sm font-mono">{product.sku}</td>
-                        <td className="px-4 py-3 text-sm" title={product.title}>
-                          {product.title.length > 50 ? `${product.title.slice(0, 50)}...` : product.title}
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            defaultValue={product.costPrice || '0'}
-                            onBlur={(e) => handleProductUpdate(product.sku, 'costPrice', e.target.value)}
-                            className="w-20"
-                            data-testid={`input-cost-price-${product.sku}`}
-                          />
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            defaultValue={product.packagingCost || '0'}
-                            onBlur={(e) => handleProductUpdate(product.sku, 'packagingCost', e.target.value)}
-                            className="w-20"
-                            data-testid={`input-packaging-cost-${product.sku}`}
-                          />
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          <Input
-                            type="number"
-                            step="0.1"
-                            defaultValue={product.gstPercent || '18'}
-                            onBlur={(e) => handleProductUpdate(product.sku, 'gstPercent', e.target.value)}
-                            className="w-16"
-                            data-testid={`input-gst-percent-${product.sku}`}
-                          />
-                        </td>
-                        <td className="px-4 py-3 text-sm text-muted-foreground">
-                          {product.totalOrders || 0}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-muted-foreground">
-                          {new Date(product.updatedAt).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          <Button 
-                            variant="link" 
-                            size="sm"
-                            data-testid={`button-save-${product.sku}`}
-                          >
-                            Save
-                          </Button>
-                        </td>
-                      </tr>
-                    ))
+                    filteredProducts.map((product: any, index: number) => {
+                      const costPrice = parseFloat(product.costPrice || '0');
+                      const packagingCost = parseFloat(product.packagingCost || '0');
+                      const gstPercent = parseFloat(product.gstPercent || '18');
+                      const finalPrice = calculateFinalPrice(costPrice, packagingCost, gstPercent);
+                      
+                      return (
+                        <tr key={product.sku} className="hover:bg-muted/50" data-testid={`row-product-${product.sku}`}>
+                          <td className="px-4 py-3 text-sm font-medium text-center">{index + 1}</td>
+                          <td className="px-4 py-3 text-sm font-mono">{product.sku}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              defaultValue={product.costPrice || '0'}
+                              onBlur={(e) => handleProductUpdate(product.sku, 'costPrice', e.target.value)}
+                              className="w-24"
+                              data-testid={`input-cost-price-${product.sku}`}
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              defaultValue={product.packagingCost || '0'}
+                              onBlur={(e) => handleProductUpdate(product.sku, 'packagingCost', e.target.value)}
+                              className="w-24"
+                              data-testid={`input-packaging-cost-${product.sku}`}
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            <Input
+                              type="number"
+                              step="0.1"
+                              defaultValue={product.gstPercent || '18'}
+                              onBlur={(e) => handleProductUpdate(product.sku, 'gstPercent', e.target.value)}
+                              className="w-20"
+                              data-testid={`input-gst-percent-${product.sku}`}
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-green-600">₹{finalPrice.toFixed(2)}</span>
+                              <span className="text-xs text-muted-foreground">
+                                ₹{(costPrice + packagingCost).toFixed(2)} + ₹{((costPrice + packagingCost) * gstPercent / 100).toFixed(2)} GST
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className="text-xs text-muted-foreground italic">Auto-saved</span>
+                          </td>
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                         No products found. {searchQuery ? 'Try adjusting your search.' : 'Upload order files to create products.'}
                       </td>
                     </tr>

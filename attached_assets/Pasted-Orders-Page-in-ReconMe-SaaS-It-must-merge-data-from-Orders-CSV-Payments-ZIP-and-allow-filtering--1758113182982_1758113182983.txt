@@ -1,0 +1,109 @@
+Orders Page in ReconMe SaaS. It must merge data from Orders CSV + Payments ZIP and allow filtering, exports, and live updates.
+
+1. Page Layout
+
+Use React + TailwindCSS for responsive and modern UI.
+
+Navigation tabs: Dashboard | Products | Orders | File Upload.
+
+Page header: "Orders Details".
+
+2. Filters (Top Section)
+
+Filter by Sub Order ID (search input).
+
+Order Status filter (dropdown: All, Delivered, Shipped, Cancelled, RTO, Returned, Exchanged).
+
+Payment Status (Excel) filter (dropdown: Paid, Unpaid/Zero, N/A).
+
+Payment Date filter (date range picker).
+
+Duplicate Handling filter (dropdown: Show All Orders, Exclude Duplicates).
+
+3. Action Buttons
+
+Export Standard CSV
+
+Export Financial Detail CSV
+
+Place them in top right with animated hover effect.
+
+4. Orders Table (Main Section)
+
+Columns required:
+
+S. No.
+
+SKU
+
+Sub Order ID
+
+QTY
+
+Order Date
+
+Payment Date
+
+Listed Price (from Orders file)
+
+Settlement (from Payments file)
+
+Cost Price (from Products file, includes GST %)
+
+Gross P/L = Settlement – Cost Price
+
+Order Status (Delivered, RTO, Cancelled etc. with colored pill labels)
+
+Payment Status (Paid, Unpaid/Zero, N/A with colored pill labels).
+
+5. Table Functionality
+
+Paginated & scrollable with sticky header.
+
+Sorting on all numeric/date columns.
+
+Color-coded status chips:
+
+Delivered → Green
+
+RTO → Purple
+
+Cancelled → Grey
+
+Paid → Green
+
+Unpaid/Zero → Yellow
+
+N/A → Grey.
+
+Hover row highlight.
+
+Responsive design → collapses into card-style view on mobile.
+
+6. Data Handling
+
+Merge Orders CSV + Payments ZIP + Products.
+
+If a row exists in Orders but not in Payments, show Payment Status = "Unpaid/Zero".
+
+Calculate Gross P/L dynamically (Settlement – Cost Price).
+
+If product cost updated in Products, automatically recalc here.
+
+7. Database & Sync
+
+Store all parsed rows in Supabase (orders table).
+
+Changes in Products or Payments auto-update the Orders table.
+
+Always keep one source of truth → Supabase DB.
+
+8. UI/UX Enhancements
+
+Animated filters (smooth expand/collapse).
+
+Search suggestions while typing Sub Order ID.
+
+Export buttons with icon + label.
+
+Compact view for mobile.

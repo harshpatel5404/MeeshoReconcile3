@@ -133,6 +133,7 @@ export class FileProcessor {
 
   static async processPaymentsXLSX(buffer: Buffer): Promise<ProcessedFile> {
     const payments: InsertPayment[] = [];
+    const productGstUpdates: Map<string, string> = new Map();
     const errors: string[] = [];
 
     try {
@@ -154,6 +155,18 @@ export class FileProcessor {
             adsFee: row['Ads Fee'] || row['Marketing Fee'] || '0',
           };
 
+          // Extract GST information for product updates
+          const sku = row['SKU'] || row['Product SKU'] || row['sku'];
+          const productGst = row['Product GST %'] || row['Product GST'] || row['GST %'] || row['GST Percent'];
+          
+          if (sku && productGst && !productGstUpdates.has(sku)) {
+            // Clean GST value - remove % symbol if present
+            const cleanGst = typeof productGst === 'string' 
+              ? productGst.replace('%', '').trim() 
+              : productGst.toString();
+            productGstUpdates.set(sku, cleanGst);
+          }
+
           // Validation
           if (!payment.subOrderNo) {
             errors.push(`Missing sub order number at row ${index + 1}`);
@@ -165,6 +178,18 @@ export class FileProcessor {
           errors.push(`Error processing payment row ${index + 1}: ${error}`);
         }
       });
+
+      // Update products with GST information from payment file
+      if (productGstUpdates.size > 0) {
+        const updates = Array.from(productGstUpdates.entries());
+        for (const [sku, gstPercent] of updates) {
+          try {
+            await storage.updateProduct(sku, { gstPercent });
+          } catch (error) {
+            errors.push(`Error updating GST for product ${sku}: ${error}`);
+          }
+        }
+      }
     } catch (error) {
       errors.push(`XLSX parsing error: ${error}`);
     }
