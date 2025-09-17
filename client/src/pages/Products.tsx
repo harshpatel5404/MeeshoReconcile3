@@ -1,0 +1,286 @@
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import Header from '@/components/Header';
+import { Package, Upload, Search } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { useAuthQuery, useAuthApiRequest } from '@/hooks/use-auth-query';
+import { useAuth } from '@/contexts/AuthContext';
+
+export default function Products() {
+  const [bulkPackagingCost, setBulkPackagingCost] = useState('');
+  const [bulkGstPercent, setBulkGstPercent] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const apiRequest = useAuthApiRequest();
+
+  const { data: products, isLoading } = useAuthQuery({
+    queryKey: ['/api/products'],
+  });
+
+  const updateProductMutation = useMutation({
+    mutationFn: async ({ sku, data }: { sku: string; data: any }) => {
+      return apiRequest('PUT', `/api/products/${sku}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/products'] });
+      toast({
+        title: "Product updated",
+        description: "Product has been updated successfully.",
+      });
+    },
+  });
+
+  const bulkUpdateMutation = useMutation({
+    mutationFn: async ({ field, value }: { field: string; value: string }) => {
+      return apiRequest('POST', '/api/products/bulk-update', { field, value });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/products'] });
+      toast({
+        title: "Bulk update completed",
+        description: "All products have been updated successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Bulk update failed",
+        description: "There was an error updating the products.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleProductUpdate = (sku: string, field: string, value: string) => {
+    updateProductMutation.mutate({
+      sku,
+      data: { [field]: value }
+    });
+  };
+
+  const handleBulkSetPackaging = () => {
+    if (!bulkPackagingCost) {
+      toast({
+        title: "Missing value",
+        description: "Please enter a packaging cost value.",
+        variant: "destructive",
+      });
+      return;
+    }
+    bulkUpdateMutation.mutate({
+      field: 'packagingCost',
+      value: bulkPackagingCost
+    });
+  };
+
+  const handleBulkSetGST = () => {
+    if (!bulkGstPercent) {
+      toast({
+        title: "Missing value", 
+        description: "Please enter a GST percentage value.",
+        variant: "destructive",
+      });
+      return;
+    }
+    bulkUpdateMutation.mutate({
+      field: 'gstPercent',
+      value: bulkGstPercent
+    });
+  };
+
+  const filteredProducts = products?.filter((product: any) =>
+    product.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    product.title.toLowerCase().includes(searchQuery.toLowerCase())
+  ) || [];
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <Header title="Products" subtitle="Manage product costs and configurations" />
+      
+      <div className="flex-1 overflow-auto p-6">
+        {/* Product Management Header */}
+        <Card className="shadow-sm mb-6">
+          <CardContent className="p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Package className="w-5 h-5" />
+                Product Cost Management
+              </h3>
+              <div className="flex items-center gap-4">
+                <Button variant="secondary" data-testid="button-import-products">
+                  <Upload className="w-4 h-4 mr-2" />
+                  Import Products
+                </Button>
+                <Button data-testid="button-update-all-products">
+                  Update All Product Costs
+                </Button>
+              </div>
+            </div>
+            
+            {/* Bulk Actions */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="bulk-packaging">Bulk Set Packaging Cost</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="bulk-packaging"
+                    type="number"
+                    step="0.01"
+                    placeholder="₹ Amount"
+                    value={bulkPackagingCost}
+                    onChange={(e) => setBulkPackagingCost(e.target.value)}
+                    data-testid="input-bulk-packaging-cost"
+                  />
+                  <Button 
+                    variant="outline" 
+                    onClick={handleBulkSetPackaging}
+                    disabled={bulkUpdateMutation.isPending}
+                    data-testid="button-bulk-set-packaging"
+                  >
+                    Apply to All
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="bulk-gst">Bulk Set GST %</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="bulk-gst"
+                    type="number"
+                    step="0.1"
+                    placeholder="% Rate"
+                    value={bulkGstPercent}
+                    onChange={(e) => setBulkGstPercent(e.target.value)}
+                    data-testid="input-bulk-gst-percent"
+                  />
+                  <Button 
+                    variant="outline" 
+                    onClick={handleBulkSetGST}
+                    disabled={bulkUpdateMutation.isPending}
+                    data-testid="button-bulk-set-gst"
+                  >
+                    Apply to All
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="search">Search Products</Label>
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+                  <Input
+                    id="search"
+                    placeholder="Search by SKU or title..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                    data-testid="input-search-products"
+                  />
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Products Table */}
+        <Card className="shadow-sm">
+          <CardContent className="p-0">
+            <div className="p-6 border-b border-border">
+              <h3 className="text-lg font-semibold">
+                Products ({filteredProducts.length} total)
+              </h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">SKU</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Product Title</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Cost Price (₹)</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Packaging Cost (₹)</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">GST (%)</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Total Orders</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Last Updated</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                        Loading products...
+                      </td>
+                    </tr>
+                  ) : filteredProducts.length > 0 ? (
+                    filteredProducts.map((product: any) => (
+                      <tr key={product.id} className="hover:bg-muted/50" data-testid={`row-product-${product.sku}`}>
+                        <td className="px-4 py-3 text-sm font-mono">{product.sku}</td>
+                        <td className="px-4 py-3 text-sm" title={product.title}>
+                          {product.title.length > 50 ? `${product.title.slice(0, 50)}...` : product.title}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            defaultValue={product.costPrice || '0'}
+                            onBlur={(e) => handleProductUpdate(product.sku, 'costPrice', e.target.value)}
+                            className="w-20"
+                            data-testid={`input-cost-price-${product.sku}`}
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            defaultValue={product.packagingCost || '0'}
+                            onBlur={(e) => handleProductUpdate(product.sku, 'packagingCost', e.target.value)}
+                            className="w-20"
+                            data-testid={`input-packaging-cost-${product.sku}`}
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            defaultValue={product.gstPercent || '18'}
+                            onBlur={(e) => handleProductUpdate(product.sku, 'gstPercent', e.target.value)}
+                            className="w-16"
+                            data-testid={`input-gst-percent-${product.sku}`}
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">
+                          {product.totalOrders || 0}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">
+                          {new Date(product.updatedAt).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          <Button 
+                            variant="link" 
+                            size="sm"
+                            data-testid={`button-save-${product.sku}`}
+                          >
+                            Save
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                        No products found. {searchQuery ? 'Try adjusting your search.' : 'Upload order files to create products.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

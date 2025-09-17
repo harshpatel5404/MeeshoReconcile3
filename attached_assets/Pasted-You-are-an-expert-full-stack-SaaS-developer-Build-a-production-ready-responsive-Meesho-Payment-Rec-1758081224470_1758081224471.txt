@@ -1,0 +1,328 @@
+You are an expert full-stack SaaS developer. Build a production-ready, responsive Meesho Payment Reconciliation web app called Sunix Insights (replaceable brand). Use React + TypeScript + Tailwind for the frontend, Node.js + Express for the backend, Supabase (Postgres + Storage) for primary data and file storage, and Firebase Auth + Firestore only for storing user authentication/profile info (email, displayName, plan, createdAt). Do not use Firebase Storage. The app must be mostly free-tier friendly and start with the MVP flow: login → upload ZIP (payment XLSX(s) + orders CSV) → parse → store → Products/Orders/Payments tabs → Dashboard with reconciliation. Build modular code, idempotent uploads, robust error handling, unit and integration tests, CI (GitHub Actions), and deployment scripts for Vercel (frontend) + Render/Railway (backend) and Supabase DB.
+
+Deliver code, Postgres schema (Prisma), OpenAPI spec, Postman collection, README, sample dataset, and end-to-end tests. Follow the exact step list below and produce the specified API endpoints, DB tables, UI views, reconciliation logic, and exports.
+
+Step-by-Step Tasks for the Agent (execute in order)
+1) Repo scaffolding & config
+
+Create monorepo (or two repos) frontend/ & backend/.
+
+Setup lint, prettier, TypeScript, environment (.env.example).
+
+Add README with architecture diagram and simple commands.
+Acceptance: npm run dev starts frontend and backend locally.
+
+2) Auth: Firebase Auth + Firestore (user profiles)
+
+Frontend: Firebase Auth (email/password + Google). On login, send ID token to backend with Authorization: Bearer <idToken>.
+
+Backend: use firebase-admin to verify ID token and create or upsert a Firestore user doc:
+
+/users/{uid} = { email, displayName, plan: 'free', createdAt, lastSeen }
+
+
+Backend middleware authMiddleware must parse and verify Firebase token on protected routes.
+Acceptance: After signup, Firestore user doc exists and backend returns 200 on /api/auth/verify.
+
+3) Storage: Supabase Storage (preferred) or local fallback
+
+Use Supabase Storage bucket uploads/ for uploaded .zip files. Provide configuration to switch to local /uploads dir if user desires (dev mode).
+
+Frontend uploads .zip to backend; backend streams upload to Supabase Storage and returns uploadId and signed URL for audit.
+Acceptance: POST /api/uploads/zip stores ZIP in Supabase Storage and returns uploadId.
+
+4) Upload API & idempotent handling
+
+Endpoint: POST /api/uploads/zip
+
+Accepts multipart form zip file and optional sourceMonth/label.
+
+Saves metadata in uploads table and returns uploadId.
+
+Endpoint: POST /api/uploads/{uploadId}/process
+
+Idempotent. If status already processed, return cached summary.
+
+Downloads zip, extracts files, identifies CSV/XLSX.
+Acceptance: Upload returns id; repeated process calls do not duplicate data.
+
+5) File parsing rules (Orders & Payment files)
+
+Orders CSV mapping (exact columns — use trimming & case-insensitive header matching):
+
+Reason for Credit Entry
+
+Sub Order No → sub_order_no (primary external id)
+
+Order Date → ISO date
+
+Customer State → customer_state
+
+Product Name → product_name
+
+SKU → sku
+
+Size → size
+
+Quantity → integer
+
+Supplier Listed Price (Incl. GST + Commission) → listed_price
+
+Supplier Discounted Price (Incl GST and Commission) → discounted_price
+
+Packet Id → packet_id
+
+Payments XLSX sheet names:
+
+Order Payments, Ads Cost, Referral Payments, Compensation and Recovery
+
+Parse each sheet row → normalize sub_order_no, payment_date, settlement_amount, ads_cost, referral_fee, compensation, tcs, tds, fee_type, raw_row.
+
+Cleaning rules:
+
+Strip currency symbols and thousands separators
+
+Parse dates robustly
+
+Skip empty rows
+
+Create processing_errors log rows for missing required fields
+
+Acceptance: Parser returns JSON summary with counts and errors. Map at least 95% rows correctly on sample dataset.
+
+6) Database (Supabase/Postgres) schema — Prisma
+
+Provide Prisma schema and migrations. Core tables:
+
+users (only id mapping to Firebase uid optional)
+
+model User {
+  id        String  @id @default(uuid())
+  firebaseUid String @unique
+  email     String  @unique
+  displayName String?
+  plan      String  @default("free")
+  createdAt DateTime @default(now())
+}
+
+
+uploads
+
+model Upload {
+  id        String @id @default(uuid())
+  userId    String
+  filename  String
+  storagePath String
+  status    String  @default("uploaded")
+  parsedAt  DateTime?
+  createdAt DateTime @default(now())
+}
+
+
+products
+
+model Product {
+  id        String @id @default(uuid())
+  userId    String
+  sku       String
+  title     String?
+  costPrice Decimal @default(0)
+  packagingCost Decimal @default(0)
+  gstPercent Decimal @default(0)
+  updatedAt DateTime @updatedAt
+  @@unique([userId, sku])
+}
+
+
+orders
+
+model Order {
+  id           Int    @id @default(autoincrement())
+  userId       String
+  subOrderNo   String
+  packetId     String?
+  reasonCredit String?
+  orderDate    DateTime?
+  customerState String?
+  productName  String?
+  sku          String?
+  size         String?
+  quantity     Int
+  listedPrice  Decimal
+  discountedPrice Decimal
+  paymentDate  DateTime?
+  createdAt    DateTime @default(now())
+  @@unique([userId, subOrderNo])
+}
+
+
+payments
+
+model Payment {
+  id            Int @id @default(autoincrement())
+  userId        String
+  subOrderNo    String?
+  paymentDate   DateTime?
+  settlementAmount Decimal
+  adsCost       Decimal @default(0)
+  referralFee   Decimal @default(0)
+  compensation  Decimal @default(0)
+  tcs           Decimal @default(0)
+  tds           Decimal @default(0)
+  rawSheet      String?
+  createdAt     DateTime @default(now())
+}
+
+
+reconciliations
+
+model Reconciliation {
+  id            Int @id @default(autoincrement())
+  userId        String
+  subOrderNo    String
+  orderId       Int?
+  paymentId     Int?
+  productCost   Decimal @default(0)
+  packagingCost Decimal @default(0)
+  shippingCost  Decimal @default(0)
+  adsCost       Decimal @default(0)
+  referralFee   Decimal @default(0)
+  compensation  Decimal @default(0)
+  tcs           Decimal @default(0)
+  tds           Decimal @default(0)
+  settlement    Decimal
+  netProfit     Decimal
+  status        String @default("unreconciled")
+  reconciledAt  DateTime?
+}
+
+
+Acceptance: Run migrations and create tables in Supabase successfully.
+
+7) Upsert logic & idempotency
+
+When inserting orders/payments, use ON CONFLICT upsert keyed by (userId, subOrderNo) or unique constraints.
+
+Keep an uploads audit row linking each parsed row to uploadId.
+Acceptance: Reprocessing same zip should not duplicate records.
+
+8) Reconciliation engine (core algorithm)
+
+Pseudocode:
+
+for each order O in date range for user:
+  P = payments where payment.subOrderNo == O.subOrderNo or matched by packetId
+  product = products where sku == O.sku (user)
+  cost = (product.costPrice or 0) * O.quantity
+  packaging = (product.packagingCost or 0) * O.quantity
+  settlement = sum(payment.settlementAmount for P) or 0
+  ads = sum(payment.adsCost), referral = sum(payment.referralFee)
+  tcs = sum(payment.tcs), tds = sum(payment.tds), comp = sum(payment.compensation)
+  netProfit = settlement - (cost + packaging + ads + referral + tcs + tds + comp + shippingCost)
+  if abs(expectedSettlement - settlement) > 1.0:
+    status = "mismatch"
+  else:
+    status = "reconciled"
+  save Reconciliation record
+
+
+Tolerance threshold configurable (default ₹1).
+Acceptance: Running POST /api/reconcile/run produces reconciliation records and mismatch summary.
+
+9) API endpoints (OpenAPI)
+
+Implement these APIs (examples):
+
+POST /api/auth/verify (validates Firebase token)
+
+POST /api/uploads/zip → {uploadId}
+
+POST /api/uploads/{uploadId}/process → {summary: {orders: n, payments: m, errors: k}}
+
+GET /api/orders?limit=&offset=&filter...
+
+GET /api/orders/{subOrderNo}
+
+PUT /api/products/{sku} (update cost/packaging/gst)
+
+GET /api/products
+
+GET /api/payments
+
+POST /api/reconcile/run (body: {from,to}) → returns summary & expose GET /api/reconcile/{subOrderNo}
+
+GET /api/dashboard/summary?from=&to=
+
+GET /api/export?type=financial&from=&to= returns CSV download
+
+Acceptance: Provide OpenAPI JSON & Postman collection.
+
+10) Frontend pages (map to your screenshots)
+
+Login: Firebase Auth (Email + Google)
+
+Upload Page (screenshot match): left panel Payment ZIP, right panel Orders CSV; "Process Files" button; show last upload history & statuses.
+
+Orders Tab (big table like screenshot): columns: S.No, SKU, Sub Order ID, Qty, Order Date, Payment Date, Listed Price, Settlement, Cost Price, Gross P/L, Order Status, Payment Status. Filters on top (Sub Order ID, Order Status, Payment Status, Payment Date, Duplicate Handling).
+
+Products Tab (screenshot mapping): table of SKUs with inline editable cost, packaging, gst, bulk set packaging field and "Apply to All" button, "Update All Product Costs" button.
+
+Dashboard (cards + charts): Overall Financial Summary, Orders Overview, Revenue & Orders Trend graph, Settlement Components, Earnings Overview, Order Status donut, Top products and returns bars. Use recharts.
+
+Reconciliation Detail: show order row, matched payment rows, computed breakdown and manual override options.
+
+Acceptance: UI components reflect screenshots, mobile responsive, inline editing works and saves via API.
+
+11) Export & reporting
+
+Financial CSV export columns:
+sub_order_no, order_date, sku, qty, listed_price, discounted_price, settlement, product_cost_total, packaging_total, ads_cost, referral_fee, tcs, tds, net_profit, status
+
+Implement scheduled export (future) and one-time export endpoints.
+
+Acceptance: Export returns correct CSV for sample range.
+
+12) Error logging & monitoring
+
+Table processing_errors with uploadId, rowIndex, fileName, errorMessage.
+
+Logs use pino or winston. Create logs/ fallback for dev.
+Acceptance: Parser writes errors to table and UI shows error summary.
+
+13) Tests
+
+Unit tests for parsers and reconciliation (Jest).
+
+Integration tests for upload → process → reconcile (supertest).
+
+Add E2E sample run using provided CSV/XLSX sample.
+Acceptance: Tests pass locally in CI.
+
+14) CI/CD
+
+GitHub Actions to run lints, tests, build.
+
+On merge to main deploy frontend to Vercel and backend to Render/Railway. Run Prisma migrations against Supabase.
+Acceptance: Auto-deploy pipeline works for staging.
+
+15) Cost-saving recommendations (free friendly)
+
+Frontend on Vercel free tier.
+
+Backend on Render / Railway free plan or small hobby instance.
+
+Database & Storage on Supabase free tier (Postgres + Storage).
+
+Use Firebase Auth free tier. Use Firestore minimally (only user profile), or store user profile in Supabase if you prefer one DB.
+
+Retain uploaded ZIPs for short TTL, archive old ones to cold storage (or delete after processing) to save storage costs.
+Acceptance: Documented cost plan in README.
+
+16) Acceptance checklist & UAT
+
+Upload sample zip (your files) -> parser summary matches screenshot numbers.
+
+Product costs editable via UI and reflected in dashboard calculations.
+
+Reconciliation run produces same net profit and mismatch list as expected.
+Acceptance: Provide a demo user with sample dataset and walk-through steps.
