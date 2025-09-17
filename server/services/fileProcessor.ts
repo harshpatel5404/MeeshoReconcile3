@@ -1,4 +1,4 @@
-import * as csv from 'csv-parser';
+import csv from 'csv-parser';
 import * as xlsx from 'xlsx';
 import { Readable } from 'stream';
 import { storage } from '../storage';
@@ -49,7 +49,7 @@ export class FileProcessor {
         .on('end', () => {
           resolve({ orders, errors });
         })
-        .on('error', (error) => {
+        .on('error', (error: any) => {
           errors.push(`CSV parsing error: ${error}`);
           resolve({ orders, errors });
         });

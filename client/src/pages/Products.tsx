@@ -98,10 +98,10 @@ export default function Products() {
   ) || [];
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="min-h-screen flex flex-col">
       <Header title="Products" subtitle="Manage product costs and configurations" />
       
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 p-6">
         {/* Product Management Header */}
         <Card className="shadow-sm mb-6">
           <CardContent className="p-6">

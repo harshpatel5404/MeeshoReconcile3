@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import Header from '@/components/Header';
-import { Search, Filter, Download, Calculator } from 'lucide-react';
+import { Search, Filter, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuthQuery, useAuthApiRequest } from '@/hooks/use-auth-query';
 import { useAuth } from '@/contexts/AuthContext';
@@ -39,26 +39,6 @@ export default function Orders() {
 
   const apiRequest = useAuthApiRequest();
   
-  const reconciliationMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest('POST', '/api/reconciliations/run', {});
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/reconciliations'] });
-      toast({
-        title: "Reconciliation completed",
-        description: "Orders have been processed successfully.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Reconciliation failed",
-        description: "There was an error running reconciliation.",
-        variant: "destructive",
-      });
-    },
-  });
 
   const handleApplyFilters = () => {
     queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
@@ -97,8 +77,8 @@ export default function Orders() {
 
   const getPaymentStatusBadge = (hasPayment: boolean) => {
     return hasPayment 
-      ? <Badge className="bg-blue-100 text-blue-800">Reconciled</Badge>
-      : <Badge variant="secondary">Unreconciled</Badge>;
+      ? <Badge className="bg-blue-100 text-blue-800">Paid</Badge>
+      : <Badge variant="secondary">Pending</Badge>;
   };
 
   const formatCurrency = (amount: string | number) => {
@@ -118,10 +98,10 @@ export default function Orders() {
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="min-h-screen flex flex-col">
       <Header title="Orders Management" subtitle="View and manage your orders data" />
       
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 p-6">
         {/* Filters Section */}
         <Card className="shadow-sm mb-6">
           <CardContent className="p-6">
@@ -163,9 +143,8 @@ export default function Orders() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Payments</SelectItem>
-                    <SelectItem value="reconciled">Reconciled</SelectItem>
-                    <SelectItem value="unreconciled">Unreconciled</SelectItem>
-                    <SelectItem value="mismatch">Mismatch</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -220,15 +199,6 @@ export default function Orders() {
                   >
                     <Download className="w-4 h-4 mr-2" />
                     Export
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    onClick={() => reconciliationMutation.mutate()}
-                    disabled={reconciliationMutation.isPending}
-                    data-testid="button-run-reconciliation"
-                  >
-                    <Calculator className="w-4 h-4 mr-2" />
-                    {reconciliationMutation.isPending ? 'Running...' : 'Run Reconciliation'}
                   </Button>
                 </div>
               </div>

@@ -46,6 +46,46 @@ export default function Upload() {
         title: "Upload started",
         description: "Your files are being processed.",
       });
+      
+      // Start polling for completion and refresh UI when both files are processed
+      const pollForCompletion = () => {
+        setTimeout(async () => {
+          try {
+            const response = await fetch('/api/uploads', {
+              headers: { 'Authorization': `Bearer ${token}` },
+            });
+            const uploads = await response.json();
+            
+            // Check if all recent uploads are processed
+            const recentUploads = uploads.filter((upload: any) => 
+              new Date(upload.createdAt) > new Date(Date.now() - 5 * 60 * 1000) // Last 5 minutes
+            );
+            
+            const allProcessed = recentUploads.length > 0 && 
+              recentUploads.every((upload: any) => upload.status === 'processed' || upload.status === 'failed');
+            
+            if (allProcessed) {
+              // Refresh all data when processing is complete
+              queryClient.invalidateQueries({ queryKey: ['/api/dashboard/summary'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/products'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/uploads'] });
+              
+              toast({
+                title: "Processing completed",
+                description: "Your files have been processed and data updated.",
+              });
+            } else if (recentUploads.some((upload: any) => upload.status === 'processing')) {
+              pollForCompletion(); // Continue polling
+            }
+          } catch (error) {
+            // Silently handle polling errors
+          }
+        }, 2000); // Poll every 2 seconds
+      };
+      
+      pollForCompletion();
+      
       // Reset form
       setPaymentFiles(null);
       setOrdersFiles(null);
@@ -109,14 +149,14 @@ export default function Upload() {
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="min-h-screen flex flex-col">
       <Header 
         title="Upload Files" 
         subtitle="Upload and process payment and order files"
         showExport={false}
       />
       
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 p-6">
         {/* Upload Sections */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Payment Files Upload */}
@@ -252,7 +292,7 @@ export default function Upload() {
                         Loading upload history...
                       </td>
                     </tr>
-                  ) : uploads && uploads.length > 0 ? (
+                  ) : Array.isArray(uploads) && uploads.length > 0 ? (
                     uploads.map((upload: any) => (
                       <tr key={upload.id} className="hover:bg-muted/50" data-testid={`row-upload-${upload.id}`}>
                         <td className="px-6 py-4 text-sm font-medium">{upload.originalName}</td>

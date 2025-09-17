@@ -30,9 +30,9 @@ export default function Dashboard() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header title="Dashboard" subtitle="Overview of your reconciliation data" />
-        <div className="flex-1 overflow-auto p-6">
+      <div className="min-h-screen flex flex-col">
+        <Header title="Dashboard" subtitle="Overview of your payment and order analytics" />
+        <div className="flex-1 p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             {[...Array(4)].map((_, i) => (
               <Card key={i} className="animate-pulse">
@@ -73,10 +73,10 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <Header title="Dashboard" subtitle="Overview of your reconciliation data" />
+    <div className="min-h-screen flex flex-col">
+      <Header title="Dashboard" subtitle="Overview of your payment and order analytics" />
       
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 p-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card className="shadow-sm" data-testid="card-revenue">

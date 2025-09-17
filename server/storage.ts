@@ -263,37 +263,65 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getDashboardSummary(): Promise<DashboardSummary> {
-    const [revenueResult] = await db
+    // Get order analytics
+    const [orderStats] = await db
       .select({
-        totalRevenue: sum(reconciliations.settlementAmount),
-        netProfit: sum(reconciliations.netProfit),
-        totalOrders: count(),
+        totalOrders: count(orders.id),
+        totalRevenue: sum(orders.discountedPrice),
+        avgOrderValue: sql<number>`avg(${orders.discountedPrice})`,
       })
-      .from(reconciliations);
+      .from(orders);
 
-    const [successResult] = await db
+    // Get payment analytics
+    const [paymentStats] = await db
       .select({
-        reconciledCount: count(),
+        totalSettlements: count(payments.id),
+        totalSettlementAmount: sum(payments.settlementAmount),
+        totalCommissionFees: sum(payments.commissionFee),
+        totalGatewayFees: sum(payments.paymentGatewayFee),
       })
-      .from(reconciliations)
-      .where(eq(reconciliations.status, 'reconciled'));
+      .from(payments);
 
-    const totalRevenue = Number(revenueResult?.totalRevenue || 0);
-    const netProfit = Number(revenueResult?.netProfit || 0);
-    const totalOrders = revenueResult?.totalOrders || 0;
-    const reconciledCount = successResult?.reconciledCount || 0;
-    const successRate = totalOrders > 0 ? (reconciledCount / totalOrders) * 100 : 0;
+    // Calculate metrics
+    const totalOrders = orderStats?.totalOrders || 0;
+    const totalRevenue = Number(orderStats?.totalRevenue || 0);
+    const totalSettlements = paymentStats?.totalSettlements || 0;
+    const totalSettlementAmount = Number(paymentStats?.totalSettlementAmount || 0);
+    const totalFees = Number(paymentStats?.totalCommissionFees || 0) + Number(paymentStats?.totalGatewayFees || 0);
+    
+    // Calculate net profit (settlements - fees)
+    const netProfit = totalSettlementAmount - totalFees;
+    
+    // Calculate success rate (orders with settlements)
+    const successRate = totalOrders > 0 ? (totalSettlements / totalOrders) * 100 : 0;
 
-    // Mock growth percentages for now
+    // Calculate growth rates (compare with data from 30 days ago)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const [oldOrderStats] = await db
+      .select({
+        oldTotalOrders: count(orders.id),
+        oldTotalRevenue: sum(orders.discountedPrice),
+      })
+      .from(orders)
+      .where(lte(orders.orderDate, thirtyDaysAgo));
+
+    const oldTotalOrders = oldOrderStats?.oldTotalOrders || 0;
+    const oldTotalRevenue = Number(oldOrderStats?.oldTotalRevenue || 0);
+
+    const revenueGrowth = oldTotalRevenue > 0 ? ((totalRevenue - oldTotalRevenue) / oldTotalRevenue) * 100 : 0;
+    const ordersGrowth = oldTotalOrders > 0 ? ((totalOrders - oldTotalOrders) / oldTotalOrders) * 100 : 0;
+
     return {
       totalRevenue,
       netProfit,
       totalOrders,
       successRate,
-      revenueGrowth: 12.3,
-      profitGrowth: 8.7,
-      ordersGrowth: 15.2,
-      successRateGrowth: 2.1,
+      revenueGrowth,
+      profitGrowth: revenueGrowth * 0.7, // Estimate profit growth as 70% of revenue growth
+      ordersGrowth,
+      successRateGrowth: Math.max(-10, Math.min(10, ordersGrowth * 0.1)), // Conservative success rate growth
     };
   }
 }

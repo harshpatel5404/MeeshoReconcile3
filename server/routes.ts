@@ -4,7 +4,6 @@ import multer from "multer";
 import { storage } from "./storage";
 import { verifyFirebaseToken } from "./services/firebase";
 import { FileProcessor } from "./services/fileProcessor";
-import { ReconciliationEngine } from "./services/reconciliation";
 import { insertUserSchema, insertProductSchema } from "@shared/schema";
 
 // Multer configuration for file uploads
@@ -24,7 +23,17 @@ async function authenticateUser(req: Request, res: Response, next: any) {
     }
 
     const decodedToken = await verifyFirebaseToken(token);
-    req.user = decodedToken;
+    
+    // Get the database user record
+    const user = await storage.getUserByFirebaseUid(decodedToken.uid);
+    if (!user) {
+      return res.status(401).json({ message: 'User not found in database' });
+    }
+
+    req.user = {
+      ...decodedToken,
+      dbId: user.id // Add database ID to user object
+    };
     next();
   } catch (error) {
     res.status(401).json({ message: 'Invalid token' });
@@ -88,7 +97,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: 'processing',
         sourceMonth,
         label,
-        uploadedBy: req.user?.uid || '',
+        uploadedBy: req.user?.dbId || '',
       });
 
       // Process file asynchronously
@@ -174,34 +183,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Reconciliation routes
-  app.get('/api/reconciliations', authenticateUser, async (req: Request, res: Response) => {
-    try {
-      const status = req.query.status as string;
-      const reconciliations = await storage.getAllReconciliations(status);
-      res.json(reconciliations);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch reconciliations' });
-    }
-  });
-
-  app.get('/api/reconciliations/summary', authenticateUser, async (req: Request, res: Response) => {
-    try {
-      const summary = await storage.getReconciliationSummary();
-      res.json(summary);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to fetch reconciliation summary' });
-    }
-  });
-
-  app.post('/api/reconciliations/run', authenticateUser, async (req: Request, res: Response) => {
-    try {
-      const result = await ReconciliationEngine.runReconciliation();
-      res.json(result);
-    } catch (error) {
-      res.status(500).json({ message: 'Reconciliation failed' });
-    }
-  });
 
   // Export routes
   app.get('/api/export/:type', authenticateUser, async (req: Request, res: Response) => {
@@ -215,9 +196,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           data = await storage.getAllOrders();
           filename = 'orders_export.csv';
           break;
-        case 'reconciliations':
-          data = await storage.getAllReconciliations();
-          filename = 'reconciliations_export.csv';
+        case 'payments':
+          data = await storage.getAllPayments();
+          filename = 'payments_export.csv';
           break;
         default:
           return res.status(400).json({ message: 'Invalid export type' });
@@ -289,6 +270,7 @@ declare global {
         email?: string;
         name?: string;
         picture?: string;
+        dbId?: string; // Add database ID
       };
     }
   }
