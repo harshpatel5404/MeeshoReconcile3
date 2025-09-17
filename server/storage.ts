@@ -11,9 +11,12 @@ import {
   type Upload, type InsertUpload
 } from "@shared/schema";
 
-// Embedded Database Configuration for Meesho Payment Reconciliation
-// This credential is embedded directly for easy future usage and development
-const DATABASE_URL = process.env.DATABASE_URL || "postgresql://postgres:$Harsh98@db.tepwrjnmaosalngjffvy.supabase.co:5432/postgres";
+// Database Configuration
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+  throw new Error("DATABASE_URL environment variable is required");
+}
 
 const client = postgres(DATABASE_URL, { prepare: false });
 const db = drizzle(client);
@@ -57,6 +60,8 @@ export interface IStorage {
 
   // Analytics
   getDashboardSummary(): Promise<DashboardSummary>;
+  getRevenueTrend(): Promise<RevenueTrendData[]>;
+  getOrderStatusDistribution(): Promise<OrderStatusData[]>;
 }
 
 export interface OrderFilters {
@@ -83,6 +88,18 @@ export interface DashboardSummary {
   profitGrowth: number;
   ordersGrowth: number;
   successRateGrowth: number;
+}
+
+export interface RevenueTrendData {
+  month: string;
+  revenue: number;
+  profit: number;
+}
+
+export interface OrderStatusData {
+  name: string;
+  value: number;
+  color: string;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -323,6 +340,84 @@ export class DatabaseStorage implements IStorage {
       ordersGrowth,
       successRateGrowth: Math.max(-10, Math.min(10, ordersGrowth * 0.1)), // Conservative success rate growth
     };
+  }
+
+  async getRevenueTrend(): Promise<RevenueTrendData[]> {
+    // Get monthly revenue and profit data for the last 12 months
+    const monthlyData = await db
+      .select({
+        month: sql<string>`TO_CHAR(${orders.orderDate}, 'Mon')`,
+        monthNum: sql<number>`EXTRACT(MONTH FROM ${orders.orderDate})`,
+        yearNum: sql<number>`EXTRACT(YEAR FROM ${orders.orderDate})`,
+        revenue: sum(orders.discountedPrice),
+        totalOrders: count(orders.id)
+      })
+      .from(orders)
+      .where(gte(orders.orderDate, sql`CURRENT_DATE - INTERVAL '12 months'`))
+      .groupBy(sql`EXTRACT(MONTH FROM ${orders.orderDate})`, sql`EXTRACT(YEAR FROM ${orders.orderDate})`, sql`TO_CHAR(${orders.orderDate}, 'Mon')`)
+      .orderBy(sql`EXTRACT(YEAR FROM ${orders.orderDate})`, sql`EXTRACT(MONTH FROM ${orders.orderDate})`);
+
+    // Get corresponding payment data for profit calculation
+    const monthlyPayments = await db
+      .select({
+        monthNum: sql<number>`EXTRACT(MONTH FROM ${payments.settlementDate})`,
+        yearNum: sql<number>`EXTRACT(YEAR FROM ${payments.settlementDate})`,
+        settlements: sum(payments.settlementAmount),
+        fees: sql<number>`SUM(COALESCE(${payments.commissionFee}, 0) + COALESCE(${payments.paymentGatewayFee}, 0))`
+      })
+      .from(payments)
+      .where(gte(payments.settlementDate, sql`CURRENT_DATE - INTERVAL '12 months'`))
+      .groupBy(sql`EXTRACT(MONTH FROM ${payments.settlementDate})`, sql`EXTRACT(YEAR FROM ${payments.settlementDate})`);
+
+    // Combine data to calculate profit
+    return monthlyData.map(monthData => {
+      const payment = monthlyPayments.find(p => 
+        p.monthNum === monthData.monthNum && p.yearNum === monthData.yearNum
+      );
+      const settlements = Number(payment?.settlements || 0);
+      const fees = Number(payment?.fees || 0);
+      const profit = settlements - fees;
+
+      return {
+        month: monthData.month,
+        revenue: Number(monthData.revenue || 0),
+        profit: Math.max(0, profit) // Ensure profit is not negative for display
+      };
+    });
+  }
+
+  async getOrderStatusDistribution(): Promise<OrderStatusData[]> {
+    // Get order status distribution
+    const statusData = await db
+      .select({
+        status: orders.reasonForCredit,
+        count: count(orders.id)
+      })
+      .from(orders)
+      .groupBy(orders.reasonForCredit);
+
+    // Map status names to display names and colors
+    const statusMapping: Record<string, { name: string; color: string }> = {
+      'Delivered': { name: 'Delivered', color: 'hsl(147 78% 42%)' },
+      'RTO Complete': { name: 'RTO Complete', color: 'hsl(0 84% 60%)' },
+      'Cancelled': { name: 'Cancelled', color: 'hsl(45 93% 47%)' },
+      'Return/Refund Completed': { name: 'Returned', color: 'hsl(220 94% 82%)' },
+      'Lost': { name: 'Lost', color: 'hsl(324 73% 52%)' }
+    };
+
+    return statusData.map(item => {
+      // Normalize status for consistent mapping (handle case variations)
+      const normalizedStatus = item.status.toLowerCase().trim();
+      const mappingKey = Object.keys(statusMapping).find(key => 
+        key.toLowerCase() === normalizedStatus
+      ) || item.status;
+      
+      return {
+        name: statusMapping[mappingKey]?.name || item.status,
+        value: item.count,
+        color: statusMapping[mappingKey]?.color || 'hsl(215 28% 52%)'
+      };
+    });
   }
 }
 

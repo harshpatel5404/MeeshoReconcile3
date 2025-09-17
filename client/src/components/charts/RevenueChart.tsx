@@ -1,21 +1,37 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useAuthQuery } from '@/hooks/use-auth-query';
 
-const mockData = [
-  { month: 'Jan', revenue: 45000, profit: 12000 },
-  { month: 'Feb', revenue: 52000, profit: 15500 },
-  { month: 'Mar', revenue: 48000, profit: 13200 },
-  { month: 'Apr', revenue: 61000, profit: 18300 },
-  { month: 'May', revenue: 55000, profit: 16500 },
-  { month: 'Jun', revenue: 67000, profit: 20100 },
-  { month: 'Jul', revenue: 72000, profit: 21600 },
-  { month: 'Aug', revenue: 245678, profit: 45234 },
-];
+interface RevenueTrendData {
+  month: string;
+  revenue: number;
+  profit: number;
+}
 
 export default function RevenueChart() {
+  const { data: chartData = [], isLoading } = useAuthQuery<RevenueTrendData[]>({
+    queryKey: ['/api/dashboard/revenue-trend'],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="h-64 flex items-center justify-center">
+        <div className="animate-pulse text-muted-foreground">Loading chart data...</div>
+      </div>
+    );
+  }
+
+  if (chartData.length === 0) {
+    return (
+      <div className="h-64 flex items-center justify-center">
+        <div className="text-muted-foreground">No data available</div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-64">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={mockData}>
+        <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
           <XAxis 
             dataKey="month" 

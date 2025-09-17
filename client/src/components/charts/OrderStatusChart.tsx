@@ -1,18 +1,39 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { useAuthQuery } from '@/hooks/use-auth-query';
 
-const mockData = [
-  { name: 'Delivered', value: 127, color: 'hsl(147 78% 42%)' },
-  { name: 'RTO Complete', value: 16, color: 'hsl(0 84% 60%)' },
-  { name: 'Cancelled', value: 8, color: 'hsl(45 93% 47%)' },
-];
+interface OrderStatusData {
+  name: string;
+  value: number;
+  color: string;
+}
 
 export default function OrderStatusChart() {
+  const { data: chartData = [], isLoading } = useAuthQuery<OrderStatusData[]>({
+    queryKey: ['/api/dashboard/order-status'],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="h-64 flex items-center justify-center">
+        <div className="animate-pulse text-muted-foreground">Loading chart data...</div>
+      </div>
+    );
+  }
+
+  if (chartData.length === 0) {
+    return (
+      <div className="h-64 flex items-center justify-center">
+        <div className="text-muted-foreground">No data available</div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-64">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
-            data={mockData}
+            data={chartData}
             cx="50%"
             cy="50%"
             innerRadius={60}
@@ -20,7 +41,7 @@ export default function OrderStatusChart() {
             paddingAngle={5}
             dataKey="value"
           >
-            {mockData.map((entry, index) => (
+            {chartData.map((entry, index) => (
               <Cell key={`cell-${index}`} fill={entry.color} />
             ))}
           </Pie>

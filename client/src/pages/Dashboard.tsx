@@ -73,13 +73,13 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col gradient-bg">
       <Header title="Dashboard" subtitle="Overview of your payment and order analytics" />
       
       <div className="flex-1 p-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card className="shadow-sm" data-testid="card-revenue">
+          <Card className="metric-card" data-testid="card-revenue">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -88,8 +88,8 @@ export default function Dashboard() {
                     {formatCurrency(summaryData.totalRevenue)}
                   </p>
                 </div>
-                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                  <DollarSign className="w-5 h-5 text-green-600" />
+                <div className="w-12 h-12 bg-gradient-to-br from-green-400 to-green-600 rounded-2xl flex items-center justify-center shadow-lg">
+                  <DollarSign className="w-6 h-6 text-white" />
                 </div>
               </div>
               <div className="flex items-center mt-2">
@@ -101,7 +101,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm" data-testid="card-profit">
+          <Card className="metric-card" data-testid="card-profit">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -110,8 +110,8 @@ export default function Dashboard() {
                     {formatCurrency(summaryData.netProfit)}
                   </p>
                 </div>
-                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                  <TrendingUp className="w-5 h-5 text-blue-600" />
+                <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
+                  <TrendingUp className="w-6 h-6 text-white" />
                 </div>
               </div>
               <div className="flex items-center mt-2">
@@ -123,7 +123,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm" data-testid="card-orders">
+          <Card className="metric-card" data-testid="card-orders">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -132,8 +132,8 @@ export default function Dashboard() {
                     {summaryData.totalOrders.toLocaleString()}
                   </p>
                 </div>
-                <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                  <ShoppingBag className="w-5 h-5 text-purple-600" />
+                <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
+                  <ShoppingBag className="w-6 h-6 text-white" />
                 </div>
               </div>
               <div className="flex items-center mt-2">
@@ -145,7 +145,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm" data-testid="card-success-rate">
+          <Card className="metric-card" data-testid="card-success-rate">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -154,8 +154,8 @@ export default function Dashboard() {
                     {summaryData.successRate.toFixed(1)}%
                   </p>
                 </div>
-                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
-                  <CheckCircle className="w-5 h-5 text-orange-600" />
+                <div className="w-12 h-12 bg-gradient-to-br from-orange-400 to-orange-600 rounded-2xl flex items-center justify-center shadow-lg">
+                  <CheckCircle className="w-6 h-6 text-white" />
                 </div>
               </div>
               <div className="flex items-center mt-2">
@@ -170,25 +170,40 @@ export default function Dashboard() {
 
         {/* Charts Section */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <Card className="shadow-sm">
+          <Card className="modern-card">
             <CardContent className="p-6">
-              <h3 className="text-lg font-semibold mb-4">Revenue Trend</h3>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-8 h-8 bg-gradient-to-br from-chart-1/20 to-chart-1/40 rounded-lg flex items-center justify-center">
+                  <TrendingUp className="w-4 h-4 text-chart-1" />
+                </div>
+                <h3 className="text-lg font-semibold">Revenue Trend</h3>
+              </div>
               <RevenueChart />
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm">
+          <Card className="modern-card">
             <CardContent className="p-6">
-              <h3 className="text-lg font-semibold mb-4">Order Status Distribution</h3>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-8 h-8 bg-gradient-to-br from-chart-2/20 to-chart-2/40 rounded-lg flex items-center justify-center">
+                  <Package className="w-4 h-4 text-chart-2" />
+                </div>
+                <h3 className="text-lg font-semibold">Order Status Distribution</h3>
+              </div>
               <OrderStatusChart />
             </CardContent>
           </Card>
         </div>
 
         {/* Recent Activity */}
-        <Card className="shadow-sm" data-testid="card-recent-activity">
+        <Card className="modern-card" data-testid="card-recent-activity">
           <CardContent className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-8 h-8 bg-gradient-to-br from-muted to-muted/60 rounded-lg flex items-center justify-center">
+                <Clock className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-semibold">Recent Activity</h3>
+            </div>
             <div className="space-y-4">
               <div className="flex items-center justify-between py-3 border-b border-border last:border-0">
                 <div className="flex items-center gap-3">

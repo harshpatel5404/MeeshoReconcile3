@@ -80,6 +80,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/dashboard/revenue-trend', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const revenueTrend = await storage.getRevenueTrend();
+      res.json(revenueTrend);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch revenue trend' });
+    }
+  });
+
+  app.get('/api/dashboard/order-status', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const orderStatus = await storage.getOrderStatusDistribution();
+      res.json(orderStatus);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch order status' });
+    }
+  });
+
   // Upload routes
   app.post('/api/upload', authenticateUser, upload.single('file'), async (req: Request, res: Response) => {
     try {

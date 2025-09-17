@@ -1,34 +1,27 @@
 import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, Download, LayoutDashboard, Upload, FileText, Package, LogOut } from 'lucide-react';
+import { MoreHorizontal, LayoutDashboard, Upload, FileText, Package, LogOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { logOut } from '@/lib/firebase';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Upload Files', href: '/upload', icon: Upload },
   { name: 'Orders', href: '/orders', icon: FileText },
   { name: 'Products', href: '/products', icon: Package },
+  { name: 'Upload Files', href: '/upload', icon: Upload },
 ];
 
 interface HeaderProps {
   title: string;
   subtitle: string;
-  showExport?: boolean;
 }
 
-export default function Header({ title, subtitle, showExport = true }: HeaderProps) {
+export default function Header({ title, subtitle }: HeaderProps) {
   const [location] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
 
-  const handleExport = () => {
-    toast({
-      title: "Export started",
-      description: "Your data export will begin shortly.",
-    });
-  };
 
   const handleLogout = async () => {
     try {
@@ -93,36 +86,25 @@ export default function Header({ title, subtitle, showExport = true }: HeaderPro
             </div>
           </div>
 
-          {/* User Profile and Export */}
-          <div className="flex items-center gap-4">
-            {showExport && (
-              <Button onClick={handleExport} data-testid="button-export">
-                <Download className="w-4 h-4 mr-2" />
-                Export Data
-              </Button>
-            )}
-            
-            {/* User Profile */}
-            <div className="flex items-center gap-3">
+          {/* User Profile */}
+          <div className="flex items-center">
+            <button 
+              onClick={handleLogout}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-3 px-3 py-2 rounded-md hover:bg-accent"
+              data-testid="button-logout"
+            >
               <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
                 <span className="text-sm font-medium" data-testid="user-initials">
                   {getInitials(user?.displayName, user?.email)}
                 </span>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate" data-testid="user-name">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium" data-testid="user-name">
                   {user?.displayName || user?.email?.split('@')[0] || 'User'}
-                </p>
-              </div>
-              <button 
-                onClick={handleLogout}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2 px-2 py-1 rounded-md hover:bg-accent"
-                data-testid="button-logout"
-              >
+                </span>
                 <LogOut className="w-4 h-4" />
-                Sign out
-              </button>
-            </div>
+              </div>
+            </button>
           </div>
         </div>
       </nav>

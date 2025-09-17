@@ -67,6 +67,8 @@ export default function Upload() {
             if (allProcessed) {
               // Refresh all data when processing is complete
               queryClient.invalidateQueries({ queryKey: ['/api/dashboard/summary'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/dashboard/revenue-trend'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/dashboard/order-status'] });
               queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
               queryClient.invalidateQueries({ queryKey: ['/api/products'] });
               queryClient.invalidateQueries({ queryKey: ['/api/uploads'] });
@@ -153,7 +155,6 @@ export default function Upload() {
       <Header 
         title="Upload Files" 
         subtitle="Upload and process payment and order files"
-        showExport={false}
       />
       
       <div className="flex-1 p-6">
