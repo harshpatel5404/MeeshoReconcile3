@@ -368,6 +368,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post('/api/products/update-all-costs', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      // Get all products
+      const products = await storage.getAllProducts();
+      
+      // For each product, recalculate and persist final price based on cost + packaging
+      const updates = products.map(async (product) => {
+        const costPrice = parseFloat(product.costPrice || '0');
+        const packagingCost = parseFloat(product.packagingCost || '0');
+        const finalPrice = Math.round((costPrice + packagingCost) * 100) / 100;
+        
+        // Update the product with the calculated final price
+        return await storage.updateProduct(product.sku, { 
+          finalPrice: finalPrice.toString() 
+        });
+      });
+      
+      const updatedProducts = await Promise.all(updates);
+      
+      // Trigger dashboard metrics recalculation
+      await storage.recalculateAllMetrics();
+      
+      res.json({ 
+        message: 'All product costs updated successfully',
+        productsProcessed: updatedProducts.length,
+        totalFinalPriceCalculated: updatedProducts.reduce((sum, product) => sum + parseFloat(product?.finalPrice || '0'), 0)
+      });
+    } catch (error) {
+      console.error('Failed to update all product costs:', error);
+      res.status(500).json({ message: 'Failed to update product costs' });
+    }
+  });
+
 
   // Export routes
   app.get('/api/export/:type', authenticateUser, async (req: Request, res: Response) => {

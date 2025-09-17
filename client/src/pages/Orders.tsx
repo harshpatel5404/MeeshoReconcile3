@@ -19,6 +19,7 @@ interface OrderFilters {
   paymentStatus: string;
   dateFrom: string;
   dateTo: string;
+  [key: string]: string; // Add index signature to satisfy URLSearchParams
 }
 
 export default function Orders() {
@@ -34,7 +35,7 @@ export default function Orders() {
   const queryClient = useQueryClient();
 
   const { data: orders, isLoading } = useAuthQuery<any[]>({
-    queryKey: ['/api/orders', Object.keys(filters).length > 0 ? `?${new URLSearchParams(filters as any).toString()}` : ''],
+    queryKey: ['/api/orders', Object.keys(filters).length > 0 ? `?${new URLSearchParams(filters as Record<string, string>).toString()}` : ''],
   });
 
   const apiRequest = useAuthApiRequest();
@@ -56,7 +57,7 @@ export default function Orders() {
   };
 
   const handleExportOrders = () => {
-    const params = new URLSearchParams(filters);
+    const params = new URLSearchParams(filters as Record<string, string>);
     window.open(`/api/export/orders?${params}`, '_blank');
   };
 
@@ -172,7 +173,7 @@ export default function Orders() {
                 <label className="flex items-center gap-2">
                   <Checkbox 
                     checked={handleDuplicates}
-                    onCheckedChange={setHandleDuplicates}
+                    onCheckedChange={(checked) => setHandleDuplicates(checked === true)}
                     data-testid="checkbox-handle-duplicates"
                   />
                   <span className="text-sm">Handle Duplicates</span>
@@ -207,13 +208,16 @@ export default function Orders() {
               <table className="w-full">
                 <thead className="bg-muted/50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">S.No</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">S.No.</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">SKU</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Sub Order ID</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Qty</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Order Date</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Payment Date</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Listed Price</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Settlement</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Cost Price</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Gross P/L</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Order Status</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Payment Status</th>
                   </tr>
@@ -221,35 +225,52 @@ export default function Orders() {
                 <tbody className="divide-y divide-border">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={12} className="px-4 py-8 text-center text-muted-foreground">
                         Loading orders...
                       </td>
                     </tr>
                   ) : orders && orders.length > 0 ? (
-                    orders.map((order: any, index: number) => (
-                      <tr key={order.id} className="hover:bg-muted/50" data-testid={`row-order-${order.subOrderNo}`}>
-                        <td className="px-4 py-3 text-sm">{index + 1}</td>
-                        <td className="px-4 py-3 text-sm font-mono">{order.sku}</td>
-                        <td className="px-4 py-3 text-sm font-mono">{order.subOrderNo}</td>
-                        <td className="px-4 py-3 text-sm">{order.quantity}</td>
-                        <td className="px-4 py-3 text-sm">
-                          {new Date(order.orderDate).toLocaleDateString()}
-                        </td>
-                        <td className="px-4 py-3 text-sm">{formatCurrency(order.listedPrice)}</td>
-                        <td className="px-4 py-3 text-sm font-medium">
-                          {formatCurrency(order.discountedPrice)}
-                        </td>
-                        <td className="px-4 py-3">
-                          {getStatusBadge(order.reasonForCredit)}
-                        </td>
-                        <td className="px-4 py-3">
-                          {getPaymentStatusBadge(false)} {/* Will be updated based on reconciliation */}
-                        </td>
-                      </tr>
-                    ))
+                    orders.map((order: any, index: number) => {
+                      const costPrice = parseFloat(order.costPrice || '0');
+                      const settlement = parseFloat(order.settlementAmount || order.discountedPrice || '0');
+                      const grossPL = settlement - costPrice;
+                      
+                      return (
+                        <tr key={order.id} className="hover:bg-muted/50" data-testid={`row-order-${order.subOrderNo}`}>
+                          <td className="px-4 py-3 text-sm">{index + 1}</td>
+                          <td className="px-4 py-3 text-sm font-mono">{order.sku}</td>
+                          <td className="px-4 py-3 text-sm font-mono">{order.subOrderNo}</td>
+                          <td className="px-4 py-3 text-sm">{order.quantity}</td>
+                          <td className="px-4 py-3 text-sm">
+                            {new Date(order.orderDate).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            {order.paymentDate ? new Date(order.paymentDate).toLocaleDateString() : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-sm">{formatCurrency(order.listedPrice)}</td>
+                          <td className="px-4 py-3 text-sm font-medium">
+                            {formatCurrency(settlement)}
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            {costPrice > 0 ? formatCurrency(costPrice) : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className={`font-medium ${grossPL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {costPrice > 0 ? formatCurrency(grossPL) : '-'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {getStatusBadge(order.reasonForCredit)}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getPaymentStatusBadge(order.hasPayment || false)}
+                          </td>
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={12} className="px-4 py-8 text-center text-muted-foreground">
                         No orders found. Upload order files to get started.
                       </td>
                     </tr>

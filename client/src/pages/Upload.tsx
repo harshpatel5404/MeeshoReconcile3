@@ -14,9 +14,6 @@ import { useAuth } from '@/contexts/AuthContext';
 export default function Upload() {
   const [paymentFiles, setPaymentFiles] = useState<FileList | null>(null);
   const [ordersFiles, setOrdersFiles] = useState<FileList | null>(null);
-  const [sourceMonth, setSourceMonth] = useState('');
-  const [label, setLabel] = useState('');
-  const [gstPercent, setGstPercent] = useState('18');
   const { toast } = useToast();
   const { token } = useAuth();
   const queryClient = useQueryClient();
@@ -92,8 +89,6 @@ export default function Upload() {
       // Reset form
       setPaymentFiles(null);
       setOrdersFiles(null);
-      setSourceMonth('');
-      setLabel('');
     },
     onError: () => {
       toast({
@@ -120,7 +115,6 @@ export default function Upload() {
       const formData = new FormData();
       formData.append('file', paymentFiles[0]);
       formData.append('fileType', 'payment_zip');
-      formData.append('sourceMonth', sourceMonth);
       uploads.push(formData);
     }
 
@@ -128,8 +122,6 @@ export default function Upload() {
       const formData = new FormData();
       formData.append('file', ordersFiles[0]);
       formData.append('fileType', 'orders_csv');
-      formData.append('label', label);
-      formData.append('gstPercent', gstPercent);
       uploads.push(formData);
     }
 
@@ -196,16 +188,6 @@ export default function Upload() {
                 </div>
               )}
               
-              <div className="mt-4">
-                <Label htmlFor="source-month">Source Month (Optional)</Label>
-                <Input
-                  id="source-month"
-                  type="month"
-                  value={sourceMonth}
-                  onChange={(e) => setSourceMonth(e.target.value)}
-                  data-testid="input-source-month"
-                />
-              </div>
             </CardContent>
           </Card>
 
@@ -243,36 +225,6 @@ export default function Upload() {
                 </div>
               )}
               
-              <div className="mt-4 space-y-4">
-                <div>
-                  <Label htmlFor="label">Label (Optional)</Label>
-                  <Input
-                    id="label"
-                    type="text"
-                    placeholder="e.g., August 2024 Orders"
-                    value={label}
-                    onChange={(e) => setLabel(e.target.value)}
-                    data-testid="input-label"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="gst-percent">Default GST % for New Products</Label>
-                  <Input
-                    id="gst-percent"
-                    type="number"
-                    min="0"
-                    max="50"
-                    step="0.1"
-                    placeholder="18"
-                    value={gstPercent}
-                    onChange={(e) => setGstPercent(e.target.value)}
-                    data-testid="input-gst-percent"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    This GST % will be applied to new products created from this upload (if GST is not specified in the CSV)
-                  </p>
-                </div>
-              </div>
             </CardContent>
           </Card>
         </div>
@@ -304,13 +256,12 @@ export default function Upload() {
                     <th className="px-6 py-3 text-left text-sm font-medium text-muted-foreground">Status</th>
                     <th className="px-6 py-3 text-left text-sm font-medium text-muted-foreground">Records</th>
                     <th className="px-6 py-3 text-left text-sm font-medium text-muted-foreground">Uploaded</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">
+                      <td colSpan={5} className="px-6 py-8 text-center text-muted-foreground">
                         Loading upload history...
                       </td>
                     </tr>
@@ -333,16 +284,11 @@ export default function Upload() {
                         <td className="px-6 py-4 text-sm text-muted-foreground">
                           {new Date(upload.createdAt).toLocaleString()}
                         </td>
-                        <td className="px-6 py-4 text-sm">
-                          <Button variant="link" size="sm" data-testid={`button-view-${upload.id}`}>
-                            View
-                          </Button>
-                        </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">
+                      <td colSpan={5} className="px-6 py-8 text-center text-muted-foreground">
                         No uploads yet. Upload your first file to get started.
                       </td>
                     </tr>

@@ -57,6 +57,34 @@ export default function Products() {
     },
   });
 
+  const updateAllCostsMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/products/update-all-costs', {});
+    },
+    onSuccess: () => {
+      // Refresh products and dashboard data
+      queryClient.invalidateQueries({ queryKey: ['/api/products'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/comprehensive-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/settlement-components'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/earnings-overview'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/operational-costs'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/daily-volume'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/top-products'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/top-returns'] });
+      toast({
+        title: "All product costs updated",
+        description: "Final prices have been recalculated and dashboard refreshed.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Update failed",
+        description: "There was an error updating product costs.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleProductUpdate = (sku: string, field: string, value: string) => {
     updateProductMutation.mutate({
       sku,
@@ -64,21 +92,13 @@ export default function Products() {
     });
   };
 
-  const calculateFinalPrice = (costPrice: number, packagingCost: number, gstPercent: number) => {
-    // Step 1: Take base Cost (₹)
+  const calculateFinalPrice = (costPrice: number, packagingCost: number) => {
+    // Final price is just cost + packaging (no GST added)
     const baseCost = costPrice || 0;
-    
-    // Step 2: Add Packaging cost (₹)
     const costPlusPackaging = baseCost + (packagingCost || 0);
     
-    // Step 3: Calculate GST amount
-    const gstAmount = (costPlusPackaging * (gstPercent || 0)) / 100;
-    
-    // Step 4: Add GST to base + packaging
-    const finalPrice = costPlusPackaging + gstAmount;
-    
-    // Step 5: Round to 2 decimals
-    return Math.round(finalPrice * 100) / 100;
+    // Round to 2 decimals
+    return Math.round(costPlusPackaging * 100) / 100;
   };
 
   const handleBulkSetPackaging = () => {
@@ -130,12 +150,12 @@ export default function Products() {
                 Product Cost Management
               </h3>
               <div className="flex items-center gap-4">
-                <Button variant="secondary" data-testid="button-import-products">
-                  <Upload className="w-4 h-4 mr-2" />
-                  Import Products
-                </Button>
-                <Button data-testid="button-update-all-products">
-                  Update All Product Costs
+                <Button 
+                  onClick={() => updateAllCostsMutation.mutate()}
+                  disabled={updateAllCostsMutation.isPending}
+                  data-testid="button-update-all-products"
+                >
+                  {updateAllCostsMutation.isPending ? 'Updating...' : 'Update All Product Costs'}
                 </Button>
               </div>
             </div>
@@ -222,13 +242,12 @@ export default function Products() {
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Packaging (₹)</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">GST (%)</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Final Price (₹)</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                         Loading products...
                       </td>
                     </tr>
@@ -237,7 +256,7 @@ export default function Products() {
                       const costPrice = parseFloat(product.costPrice || '0');
                       const packagingCost = parseFloat(product.packagingCost || '0');
                       const gstPercent = parseFloat(product.gstPercent || '18');
-                      const finalPrice = calculateFinalPrice(costPrice, packagingCost, gstPercent);
+                      const finalPrice = calculateFinalPrice(costPrice, packagingCost);
                       
                       return (
                         <tr key={product.sku} className="hover:bg-muted/50" data-testid={`row-product-${product.sku}`}>
@@ -264,32 +283,22 @@ export default function Products() {
                             />
                           </td>
                           <td className="px-4 py-3 text-sm">
-                            <Input
-                              type="number"
-                              step="0.1"
-                              defaultValue={product.gstPercent || '18'}
-                              onBlur={(e) => handleProductUpdate(product.sku, 'gstPercent', e.target.value)}
-                              className="w-20"
-                              data-testid={`input-gst-percent-${product.sku}`}
-                            />
+                            <span className="font-medium">{gstPercent}%</span>
                           </td>
                           <td className="px-4 py-3 text-sm">
                             <div className="flex flex-col">
                               <span className="font-bold text-green-600">₹{finalPrice.toFixed(2)}</span>
                               <span className="text-xs text-muted-foreground">
-                                ₹{(costPrice + packagingCost).toFixed(2)} + ₹{((costPrice + packagingCost) * gstPercent / 100).toFixed(2)} GST
+                                Cost + Packaging
                               </span>
                             </div>
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            <span className="text-xs text-muted-foreground italic">Auto-saved</span>
                           </td>
                         </tr>
                       );
                     })
                   ) : (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                         No products found. {searchQuery ? 'Try adjusting your search.' : 'Upload order files to create products.'}
                       </td>
                     </tr>

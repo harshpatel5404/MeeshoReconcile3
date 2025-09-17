@@ -209,15 +209,57 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getAllOrders(filters: OrderFilters = {}): Promise<Order[]> {
-    let query = db.select().from(orders);
+  async getAllOrders(filters: OrderFilters = {}): Promise<any[]> {
+    // Join orders with payments and products to get complete merged data
+    let query = db
+      .select({
+        // Order fields
+        id: orders.id,
+        subOrderNo: orders.subOrderNo,
+        orderDate: orders.orderDate,
+        customerState: orders.customerState,
+        productName: orders.productName,
+        sku: orders.sku,
+        size: orders.size,
+        quantity: orders.quantity,
+        listedPrice: orders.listedPrice,
+        discountedPrice: orders.discountedPrice,
+        packetId: orders.packetId,
+        reasonForCredit: orders.reasonForCredit,
+        createdAt: orders.createdAt,
+        // Payment fields
+        paymentDate: payments.settlementDate,
+        settlementAmount: payments.settlementAmount,
+        orderValue: payments.orderValue,
+        commissionFee: payments.commissionFee,
+        fixedFee: payments.fixedFee,
+        paymentGatewayFee: payments.paymentGatewayFee,
+        adsFee: payments.adsFee,
+        hasPayment: sql<boolean>`${payments.id} IS NOT NULL`,
+        // Product fields
+        costPrice: sql<string>`COALESCE(${products.costPrice}, 0)`,
+        packagingCost: sql<string>`COALESCE(${products.packagingCost}, 0)`,
+        finalPrice: sql<string>`COALESCE(${products.finalPrice}, 0)`,
+        gstPercent: products.gstPercent,
+      })
+      .from(orders)
+      .leftJoin(payments, eq(orders.subOrderNo, payments.subOrderNo))
+      .leftJoin(products, eq(orders.sku, products.sku));
+
     const conditions = [];
 
     if (filters.subOrderNo) {
       conditions.push(like(orders.subOrderNo, `%${filters.subOrderNo}%`));
     }
-    if (filters.status) {
+    if (filters.status && filters.status !== 'all') {
       conditions.push(eq(orders.reasonForCredit, filters.status));
+    }
+    if (filters.paymentStatus && filters.paymentStatus !== 'all') {
+      if (filters.paymentStatus === 'paid') {
+        conditions.push(sql`${payments.id} IS NOT NULL`);
+      } else if (filters.paymentStatus === 'pending') {
+        conditions.push(sql`${payments.id} IS NULL`);
+      }
     }
     if (filters.dateFrom) {
       conditions.push(gte(orders.orderDate, filters.dateFrom));
