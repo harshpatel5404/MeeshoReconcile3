@@ -19,8 +19,8 @@
   --accent-foreground: hsl(210, 40%, 2%);
   --destructive: hsl(0, 84%, 60%);
   --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(210, 40%, 88%);
-  --input: hsl(210, 40%, 88%);
+  --border: hsl(210, 40%, 94%);
+  --input: hsl(210, 40%, 96%);
   --ring: hsl(214, 100%, 59%);
   --chart-1: hsl(214, 100%, 59%);
   --chart-2: hsl(159, 78%, 36%);
@@ -132,15 +132,17 @@
     background: linear-gradient(135deg, hsl(var(--primary) / 0.1) 0%, hsl(var(--secondary)) 100%);
   }
   
-  /* Enhanced card styles */
+  /* Enhanced card styles - borderless modern look */
   .modern-card {
-    @apply bg-card backdrop-blur-sm border rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 hover:border-primary;
-    background-color: hsl(var(--card) / 0.95);
-    border-color: hsl(var(--border) / 0.5);
+    @apply bg-card backdrop-blur-sm rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300;
+    background-color: hsl(var(--card) / 0.98);
+    border: 1px solid hsl(var(--border) / 0.1);
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
   }
   
   .modern-card:hover {
-    border-color: hsl(var(--primary) / 0.2);
+    border-color: hsl(var(--primary) / 0.1);
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.08);
   }
   
   /* Status indicator styles */
@@ -160,11 +162,11 @@
     @apply bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-400;
   }
   
-  /* Modern metric card */
+  /* Modern metric card - borderless design */
   .metric-card {
-    @apply relative overflow-hidden bg-gradient-to-br from-card via-card to-card border rounded-2xl shadow-sm hover:shadow-xl transition-all duration-500;
-    background: linear-gradient(135deg, hsl(var(--card)) 0%, hsl(var(--card)) 50%, hsl(var(--card) / 0.5) 100%);
-    border-color: hsl(var(--border) / 0.5);
+    @apply relative overflow-hidden bg-gradient-to-br from-card via-card to-card rounded-2xl shadow-md hover:shadow-xl transition-all duration-500;
+    background: linear-gradient(135deg, hsl(var(--card)) 0%, hsl(var(--card)) 50%, hsl(var(--card) / 0.98) 100%);
+    border: 1px solid hsl(var(--border) / 0.05);
   }
   
   .metric-card::before {

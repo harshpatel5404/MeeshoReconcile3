@@ -1,5 +1,6 @@
 import csv from 'csv-parser';
 import * as xlsx from 'xlsx';
+import AdmZip from 'adm-zip';
 import { Readable } from 'stream';
 import { storage } from '../storage';
 import { 
@@ -24,6 +25,79 @@ export interface DynamicFileResult {
 }
 
 export class FileProcessor {
+  // Helper method to sanitize numeric fields by removing currency symbols and commas
+  static sanitizeNumericField(value: any): string {
+    if (value == null || value === '') return '0';
+    
+    if (typeof value === 'number') {
+      return value.toString();
+    }
+    
+    if (typeof value === 'string') {
+      // Remove currency symbols (₹, $, €, £) and commas, keep decimal point and numbers
+      const cleaned = value.trim().replace(/[₹$€£,]/g, '');
+      
+      // Check if it's a valid number after cleaning
+      if (cleaned && !isNaN(Number(cleaned))) {
+        return cleaned;
+      }
+    }
+    
+    return '0';
+  }
+
+  // Extract XLSX files from ZIP archive
+  static async extractXLSXFromZip(buffer: Buffer): Promise<{ xlsxBuffer: Buffer; filename: string } | null> {
+    try {
+      const zip = new AdmZip(buffer);
+      const zipEntries = zip.getEntries();
+
+      // Find the first XLSX file in the ZIP
+      const xlsxEntry = zipEntries.find((entry: any) => 
+        entry.entryName.toLowerCase().endsWith('.xlsx') && !entry.isDirectory
+      );
+
+      if (xlsxEntry) {
+        const xlsxBuffer = xlsxEntry.getData();
+        return {
+          xlsxBuffer,
+          filename: xlsxEntry.entryName
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error extracting XLSX from ZIP:', error);
+      return null;
+    }
+  }
+
+  // Process payments from ZIP file containing XLSX
+  static async processPaymentsZIP(buffer: Buffer): Promise<ProcessedFile> {
+    const errors: string[] = [];
+
+    try {
+      // Extract XLSX from ZIP
+      const extracted = await FileProcessor.extractXLSXFromZip(buffer);
+      
+      if (!extracted) {
+        return { 
+          payments: [], 
+          errors: ['No XLSX file found in ZIP archive'] 
+        };
+      }
+
+      console.log(`Extracted XLSX file: ${extracted.filename}`);
+
+      // Process the extracted XLSX file
+      return await FileProcessor.processPaymentsXLSX(extracted.xlsxBuffer);
+      
+    } catch (error) {
+      errors.push(`ZIP processing error: ${error}`);
+      return { payments: [], errors };
+    }
+  }
+
   // Enhanced method that extracts dynamic structure and processes data
   static async processOrdersCSVDynamic(buffer: Buffer, uploadId: string): Promise<DynamicFileResult> {
     const data: Record<string, any>[] = [];
@@ -147,12 +221,12 @@ export class FileProcessor {
           const payment: InsertPayment = {
             subOrderNo: row['Sub Order No'] || row['Order ID'] || row['sub_order_no'],
             settlementDate: row['Settlement Date'] ? new Date(row['Settlement Date']) : null,
-            settlementAmount: row['Settlement Amount'] || row['Net Amount'] || '0',
-            orderValue: row['Order Value'] || row['GMV'] || '0',
-            commissionFee: row['Commission Fee'] || row['Commission'] || '0',
-            fixedFee: row['Fixed Fee'] || row['Collection Fee'] || '0',
-            paymentGatewayFee: row['Payment Gateway Fee'] || row['PG Fee'] || '0',
-            adsFee: row['Ads Fee'] || row['Marketing Fee'] || '0',
+            settlementAmount: FileProcessor.sanitizeNumericField(row['Settlement Amount'] || row['Net Amount']),
+            orderValue: FileProcessor.sanitizeNumericField(row['Order Value'] || row['GMV']),
+            commissionFee: FileProcessor.sanitizeNumericField(row['Commission Fee'] || row['Commission']),
+            fixedFee: FileProcessor.sanitizeNumericField(row['Fixed Fee'] || row['Collection Fee']),
+            paymentGatewayFee: FileProcessor.sanitizeNumericField(row['Payment Gateway Fee'] || row['PG Fee']),
+            adsFee: FileProcessor.sanitizeNumericField(row['Ads Fee'] || row['Marketing Fee']),
           };
 
           // Extract GST information for product updates

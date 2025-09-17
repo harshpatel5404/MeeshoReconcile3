@@ -1,0 +1,131 @@
+modern, responsive, animated dashboard for ReconMe that matches the style and functionality of the provided screenshot. All metrics and tables must be dynamically calculated from user-uploaded Products, Orders, and Payments files and stored in Supabase.
+
+1. Dashboard Layout
+
+Use React + TailwindCSS for a modern UI.
+
+Responsive grid with cards and charts.
+
+Smooth transitions, hover animations, and proper spacing.
+
+Two main sections: Financial Summary + Orders Overview.
+
+2. Financial Summary Section
+
+Cards with currency formatted (₹, comma separated).
+
+Show these fields:
+
+Total Sales (Invoice)
+
+Settlement Amount
+
+Total Purchase Cost (from product costs × order qty)
+
+Total Packaging Cost
+
+Shipping Cost
+
+Total TCS
+
+Total TDS
+
+Net Profit (Settlement – All Expenses).
+
+3. Orders Overview Section
+
+Show order status counts with colored labels:
+
+Total Orders
+
+Delivered
+
+Shipped
+
+Exchanged
+
+Returns (Excl. RTO)
+
+RTO
+
+Cancelled
+
+Avg. Order Value
+
+Return Rate %
+
+Orders Awaiting Payment Record.
+
+4. Charts & Visualizations
+
+Revenue & Orders Trend (line/area chart): Daily totals of sales + order count.
+
+Order Status Overview (donut chart): Delivered, Shipped, Returns, Cancelled.
+
+Daily Order Volume & AOV (line chart): Order count + Avg Order Value.
+
+Top Performing Products (bar chart): By SKU.
+
+Top SKUs by Combined Returns/RTOs (bar chart).
+
+5. Settlement Components Breakdown (Table)
+
+Show each component with amounts:
+
+Sale Amount
+
+Sale Return Amount
+
+Shipping Charges
+
+Return Charges
+
+Platform Fees
+
+Adjustments (Claims, GST comp, etc.)
+
+TCS
+
+TDS
+
+Final Settlement.
+
+6. Earnings Overview (Table)
+
+Breakdown of payouts:
+
+Final Settlement (Meesho payout)
+
+Marketing Cost
+
+Bank Settlement (pre-COGS)
+
+Product Cost
+
+Packaging Cost
+
+Net Profit.
+
+7. Operational Costs & Recoveries (Table)
+
+Show:
+
+Penalties
+
+Weight handling fee
+
+Claims/Compensations
+
+Returns.
+
+8. Data Handling
+
+Products file → Extract GST % and pricing.
+
+Orders file → Extract quantities, status, order value.
+
+Payments file → Extract settlement, TCS, TDS, shipping, packaging.
+
+Store parsed data into Supabase tables.
+
+Any change (like product cost update) → Update DB → Recalculate all metrics → Refresh Dashboard live.

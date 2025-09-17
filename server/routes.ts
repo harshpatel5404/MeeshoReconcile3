@@ -460,13 +460,25 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
       await storage.updateUploadStatus(uploadId, 'processed', recordsProcessed, dynamicResult.errors);
       
     } else if (fileType === 'payment_zip') {
-      result = await FileProcessor.processPaymentsXLSX(buffer);
+      // Use ZIP processing method for ZIP files containing XLSX
+      result = await FileProcessor.processPaymentsZIP(buffer);
       if (result.payments) {
         await storage.bulkCreatePayments(result.payments);
         await storage.updateUploadStatus(uploadId, 'processed', result.payments.length, result.errors);
         
         // Trigger real-time calculation update for payments
         await storage.recalculateAllMetrics(uploadId);
+        console.log(`Processed ${result.payments.length} payments from ZIP file`);
+      } else {
+        // If ZIP processing failed, try direct XLSX processing as fallback
+        console.log('ZIP processing failed, attempting direct XLSX processing as fallback');
+        const fallbackResult = await FileProcessor.processPaymentsXLSX(buffer);
+        if (fallbackResult.payments) {
+          await storage.bulkCreatePayments(fallbackResult.payments);
+          await storage.updateUploadStatus(uploadId, 'processed', fallbackResult.payments.length, [...(result?.errors || []), ...(fallbackResult.errors || [])]);
+          await storage.recalculateAllMetrics(uploadId);
+          console.log(`Processed ${fallbackResult.payments.length} payments from direct XLSX`);
+        }
       }
     } else if (fileType === 'products_csv') {
       // Handle product files dynamically
