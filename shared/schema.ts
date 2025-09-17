@@ -80,8 +80,40 @@ export const uploads = pgTable("uploads", {
   errors: json("errors"),
   sourceMonth: text("source_month"),
   label: text("label"),
+  columnStructure: json("column_structure"), // Store dynamic column info
+  isCurrentVersion: boolean("is_current_version").default(true),
   uploadedBy: varchar("uploaded_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Enhanced products table to support dynamic columns
+export const productsDynamic = pgTable("products_dynamic", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  uploadId: varchar("upload_id").references(() => uploads.id),
+  dynamicData: json("dynamic_data").notNull(), // Store all dynamic column data
+  sku: text("sku").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Enhanced orders table to support dynamic columns  
+export const ordersDynamic = pgTable("orders_dynamic", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  uploadId: varchar("upload_id").references(() => uploads.id),
+  dynamicData: json("dynamic_data").notNull(), // Store all dynamic column data
+  subOrderNo: text("sub_order_no").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Real-time calculation cache
+export const calculationCache = pgTable("calculation_cache", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  cacheKey: text("cache_key").notNull().unique(),
+  calculationType: text("calculation_type").notNull(), // 'dashboard_summary', 'product_totals', etc.
+  calculationResult: json("calculation_result").notNull(),
+  lastUpdated: timestamp("last_updated").defaultNow().notNull(),
+  dependsOnUploads: json("depends_on_uploads"), // Track which uploads this depends on
 });
 
 // Insert schemas
@@ -116,6 +148,23 @@ export const insertUploadSchema = createInsertSchema(uploads).omit({
   createdAt: true,
 });
 
+export const insertProductDynamicSchema = createInsertSchema(productsDynamic).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertOrderDynamicSchema = createInsertSchema(ordersDynamic).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCalculationCacheSchema = createInsertSchema(calculationCache).omit({
+  id: true,
+  lastUpdated: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -123,8 +172,14 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type Product = typeof products.$inferSelect;
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 
+export type ProductDynamic = typeof productsDynamic.$inferSelect;
+export type InsertProductDynamic = z.infer<typeof insertProductDynamicSchema>;
+
 export type Order = typeof orders.$inferSelect;
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
+
+export type OrderDynamic = typeof ordersDynamic.$inferSelect;
+export type InsertOrderDynamic = z.infer<typeof insertOrderDynamicSchema>;
 
 export type Payment = typeof payments.$inferSelect;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
@@ -134,3 +189,102 @@ export type InsertReconciliation = z.infer<typeof insertReconciliationSchema>;
 
 export type Upload = typeof uploads.$inferSelect;
 export type InsertUpload = z.infer<typeof insertUploadSchema>;
+
+export type CalculationCache = typeof calculationCache.$inferSelect;
+export type InsertCalculationCache = z.infer<typeof insertCalculationCacheSchema>;
+
+// Dashboard Analytics Types
+export interface ComprehensiveFinancialSummary {
+  // Overall Financial Summary
+  totalSaleAmount: number;
+  settlementAmount: number;
+  totalPurchaseCost: number;
+  totalPackagingCost: number;
+  shippingCost: number;
+  totalTds: number;
+  netProfit: number;
+
+  // Orders Overview  
+  totalOrders: number;
+  delivered: number;
+  shipped: number;
+  exchanged: number;
+  cancelled: number;
+  returns: number;
+  avgOrderValue: number;
+  returnRate: number;
+  ordersAwaitingPaymentRecord: number;
+}
+
+export interface SettlementComponentsData {
+  component: string;
+  totalAmount: number;
+}
+
+export interface EarningsOverviewData {
+  description: string;
+  amount: number;
+}
+
+export interface OperationalCostsData {
+  type: string;
+  amount: number;
+}
+
+export interface DailyVolumeData {
+  date: string;
+  orderVolume: number;
+  aov: number;
+}
+
+export interface TopProductsData {
+  sku: string;
+  name: string;
+  orders: number;
+  revenue: number;
+}
+
+export interface TopReturnsData {
+  sku: string;
+  name: string;
+  returns: number;
+  rtoCount: number;
+  combinedCount: number;
+}
+
+// Dynamic column structure types
+export interface ColumnMetadata {
+  name: string;
+  type: 'text' | 'number' | 'date' | 'boolean';
+  required: boolean;
+  description?: string;
+}
+
+export interface FileStructure {
+  columns: ColumnMetadata[];
+  primaryKey: string;
+  totalRows: number;
+  sampleData: Record<string, any>[];
+}
+
+// Live dashboard metrics
+export interface LiveDashboardMetrics {
+  totalProducts: number;
+  totalOrders: number;
+  totalSales: number;
+  totalGST: number;
+  profitLoss: number;
+  trends: {
+    sales: { date: string; value: number }[];
+    gst: { date: string; value: number }[];
+    profit: { date: string; value: number }[];
+  };
+}
+
+// Real-time sync events
+export interface SyncEvent {
+  type: 'product_update' | 'order_update' | 'file_upload';
+  entityId: string;
+  changes: Record<string, any>;
+  timestamp: Date;
+}

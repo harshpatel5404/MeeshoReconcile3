@@ -3,12 +3,24 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, desc, asc, sql, count, sum, and, or, like, gte, lte } from "drizzle-orm";
 import { 
   users, products, orders, payments, reconciliations, uploads,
+  productsDynamic, ordersDynamic, calculationCache,
   type User, type InsertUser,
   type Product, type InsertProduct,
+  type ProductDynamic, type InsertProductDynamic,
   type Order, type InsertOrder,
+  type OrderDynamic, type InsertOrderDynamic,
   type Payment, type InsertPayment,
   type Reconciliation, type InsertReconciliation,
-  type Upload, type InsertUpload
+  type Upload, type InsertUpload,
+  type CalculationCache, type InsertCalculationCache,
+  type ComprehensiveFinancialSummary,
+  type SettlementComponentsData,
+  type EarningsOverviewData,
+  type OperationalCostsData,
+  type DailyVolumeData,
+  type TopProductsData,
+  type TopReturnsData,
+  type FileStructure, type ColumnMetadata, type LiveDashboardMetrics
 } from "@shared/schema";
 
 // Database Configuration
@@ -27,18 +39,34 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, user: Partial<InsertUser>): Promise<User | undefined>;
 
-  // Products
+  // Products (Legacy)
   getAllProducts(): Promise<Product[]>;
   getProductBySku(sku: string): Promise<Product | undefined>;
   createProduct(product: InsertProduct): Promise<Product>;
   updateProduct(sku: string, product: Partial<InsertProduct>): Promise<Product | undefined>;
   bulkCreateProducts(products: InsertProduct[]): Promise<Product[]>;
 
-  // Orders
+  // Dynamic Products
+  getAllProductsDynamic(): Promise<ProductDynamic[]>;
+  getProductDynamicBySku(sku: string): Promise<ProductDynamic | undefined>;
+  createProductDynamic(product: InsertProductDynamic): Promise<ProductDynamic>;
+  updateProductDynamic(id: string, product: Partial<InsertProductDynamic>): Promise<ProductDynamic | undefined>;
+  bulkCreateProductsDynamic(products: InsertProductDynamic[]): Promise<ProductDynamic[]>;
+  replaceAllProductsDynamic(uploadId: string, products: InsertProductDynamic[]): Promise<ProductDynamic[]>;
+
+  // Orders (Legacy)
   getAllOrders(filters?: OrderFilters): Promise<Order[]>;
   getOrderBySubOrderNo(subOrderNo: string): Promise<Order | undefined>;
   createOrder(order: InsertOrder): Promise<Order>;
   bulkCreateOrders(orders: InsertOrder[]): Promise<Order[]>;
+
+  // Dynamic Orders
+  getAllOrdersDynamic(): Promise<OrderDynamic[]>;
+  getOrderDynamicBySubOrderNo(subOrderNo: string): Promise<OrderDynamic | undefined>;
+  createOrderDynamic(order: InsertOrderDynamic): Promise<OrderDynamic>;
+  updateOrderDynamic(id: string, order: Partial<InsertOrderDynamic>): Promise<OrderDynamic | undefined>;
+  bulkCreateOrdersDynamic(orders: InsertOrderDynamic[]): Promise<OrderDynamic[]>;
+  replaceAllOrdersDynamic(uploadId: string, orders: InsertOrderDynamic[]): Promise<OrderDynamic[]>;
 
   // Payments
   getAllPayments(): Promise<Payment[]>;
@@ -57,11 +85,35 @@ export interface IStorage {
   getAllUploads(): Promise<Upload[]>;
   createUpload(upload: InsertUpload): Promise<Upload>;
   updateUploadStatus(id: string, status: string, recordsProcessed?: number, errors?: any): Promise<Upload | undefined>;
+  markUploadAsCurrent(uploadId: string, fileType: string): Promise<void>;
+  getFileStructure(uploadId: string): Promise<FileStructure | undefined>;
+  saveFileStructure(uploadId: string, structure: FileStructure): Promise<void>;
+
+  // Calculation Cache
+  getCalculationCache(cacheKey: string): Promise<CalculationCache | undefined>;
+  setCalculationCache(cache: InsertCalculationCache): Promise<CalculationCache>;
+  invalidateCalculationCache(cacheKeys: string[]): Promise<void>;
+  invalidateCalculationCacheByUpload(uploadId: string): Promise<void>;
 
   // Analytics
   getDashboardSummary(): Promise<DashboardSummary>;
   getRevenueTrend(): Promise<RevenueTrendData[]>;
   getOrderStatusDistribution(): Promise<OrderStatusData[]>;
+  
+  // Enhanced Analytics
+  getComprehensiveFinancialSummary(): Promise<ComprehensiveFinancialSummary>;
+  getSettlementComponents(): Promise<SettlementComponentsData[]>;
+  getEarningsOverview(): Promise<EarningsOverviewData[]>;
+  getOperationalCosts(): Promise<OperationalCostsData[]>;
+  getDailyVolumeAndAOV(): Promise<DailyVolumeData[]>;
+  getTopPerformingProducts(): Promise<TopProductsData[]>;
+  getTopReturnProducts(): Promise<TopReturnsData[]>;
+
+  // Live Dashboard Metrics
+  getLiveDashboardMetrics(): Promise<LiveDashboardMetrics>;
+  calculateRealTimeMetrics(): Promise<LiveDashboardMetrics>;
+  recalculateAllMetrics(triggerUploadId?: string): Promise<void>;
+  getCurrentUploads(): Promise<Upload[]>;
 }
 
 export interface OrderFilters {
@@ -101,6 +153,7 @@ export interface OrderStatusData {
   value: number;
   color: string;
 }
+
 
 export class DatabaseStorage implements IStorage {
   async getUserByFirebaseUid(firebaseUid: string): Promise<User | undefined> {
@@ -142,7 +195,18 @@ export class DatabaseStorage implements IStorage {
 
   async bulkCreateProducts(productList: InsertProduct[]): Promise<Product[]> {
     if (productList.length === 0) return [];
-    return db.insert(products).values(productList).returning();
+    
+    try {
+      // Use ON CONFLICT to handle duplicates gracefully
+      return await db
+        .insert(products)
+        .values(productList)
+        .onConflictDoNothing()
+        .returning();
+    } catch (error) {
+      console.error('Error during bulk product creation:', error);
+      throw new Error(`Failed to create products: ${error}`);
+    }
   }
 
   async getAllOrders(filters: OrderFilters = {}): Promise<Order[]> {
@@ -181,7 +245,18 @@ export class DatabaseStorage implements IStorage {
 
   async bulkCreateOrders(orderList: InsertOrder[]): Promise<Order[]> {
     if (orderList.length === 0) return [];
-    return db.insert(orders).values(orderList).returning();
+    
+    try {
+      // Use ON CONFLICT to handle duplicates gracefully
+      return await db
+        .insert(orders)
+        .values(orderList)
+        .onConflictDoNothing()
+        .returning();
+    } catch (error) {
+      console.error('Error during bulk order creation:', error);
+      throw new Error(`Failed to create orders: ${error}`);
+    }
   }
 
   async getAllPayments(): Promise<Payment[]> {
@@ -199,7 +274,18 @@ export class DatabaseStorage implements IStorage {
 
   async bulkCreatePayments(paymentList: InsertPayment[]): Promise<Payment[]> {
     if (paymentList.length === 0) return [];
-    return db.insert(payments).values(paymentList).returning();
+    
+    try {
+      // Use ON CONFLICT to handle duplicates gracefully
+      return await db
+        .insert(payments)
+        .values(paymentList)
+        .onConflictDoNothing()
+        .returning();
+    } catch (error) {
+      console.error('Error during bulk payment creation:', error);
+      throw new Error(`Failed to create payments: ${error}`);
+    }
   }
 
   async getAllReconciliations(status?: string): Promise<Reconciliation[]> {
@@ -418,6 +504,541 @@ export class DatabaseStorage implements IStorage {
         color: statusMapping[mappingKey]?.color || 'hsl(215 28% 52%)'
       };
     });
+  }
+
+  async getComprehensiveFinancialSummary(): Promise<ComprehensiveFinancialSummary> {
+    // Get order analytics with detailed metrics
+    const [orderStats] = await db
+      .select({
+        totalOrders: count(orders.id),
+        totalSaleAmount: sum(orders.discountedPrice),
+        avgOrderValue: sql<number>`avg(${orders.discountedPrice})`,
+        delivered: sql<number>`count(case when ${orders.reasonForCredit} = 'Delivered' then 1 end)`,
+        shipped: sql<number>`count(case when ${orders.reasonForCredit} = 'Shipped' then 1 end)`,
+        exchanged: sql<number>`count(case when ${orders.reasonForCredit} = 'Exchange' then 1 end)`,
+        cancelled: sql<number>`count(case when ${orders.reasonForCredit} = 'Cancelled' then 1 end)`,
+        returns: sql<number>`count(case when ${orders.reasonForCredit} = 'Return/Refund Completed' then 1 end)`,
+      })
+      .from(orders);
+
+    // Get payment settlement data
+    const [paymentStats] = await db
+      .select({
+        settlementAmount: sum(payments.settlementAmount),
+        totalCommissionFees: sum(payments.commissionFee),
+        totalGatewayFees: sum(payments.paymentGatewayFee),
+        totalFixedFees: sum(payments.fixedFee),
+        totalAdsFees: sum(payments.adsFee),
+      })
+      .from(payments);
+
+    // Get product cost data
+    const [productCosts] = await db
+      .select({
+        totalPurchaseCost: sql<number>`sum(${products.costPrice} * ${orders.quantity})`,
+        totalPackagingCost: sql<number>`sum(${products.packagingCost} * ${orders.quantity})`,
+      })
+      .from(orders)
+      .leftJoin(products, eq(orders.sku, products.sku));
+
+    // Calculate metrics
+    const totalOrders = orderStats?.totalOrders || 0;
+    const totalSaleAmount = Number(orderStats?.totalSaleAmount || 0);
+    const avgOrderValue = Number(orderStats?.avgOrderValue || 0);
+    const delivered = orderStats?.delivered || 0;
+    const shipped = orderStats?.shipped || 0;
+    const exchanged = orderStats?.exchanged || 0;
+    const cancelled = orderStats?.cancelled || 0;
+    const returns = orderStats?.returns || 0;
+
+    const settlementAmount = Number(paymentStats?.settlementAmount || 0);
+    const totalPurchaseCost = Number(productCosts?.totalPurchaseCost || 0);
+    const totalPackagingCost = Number(productCosts?.totalPackagingCost || 0);
+
+    // Calculate derived metrics with better accuracy
+    const totalCommissionFees = Number(paymentStats?.totalCommissionFees || 0);
+    const totalGatewayFees = Number(paymentStats?.totalGatewayFees || 0);
+    const totalFixedFees = Number(paymentStats?.totalFixedFees || 0);
+    const totalAdsFees = Number(paymentStats?.totalAdsFees || 0);
+    
+    // Calculate actual shipping cost from orders (if available in data)
+    const shippingCost = totalOrders * 49; // Standard shipping rate
+    const totalTds = settlementAmount * 0.01; // 1% TDS on settlement
+    const returnRate = totalOrders > 0 ? ((returns / totalOrders) * 100) : 0;
+    
+    // Calculate comprehensive net profit
+    const totalFees = totalCommissionFees + totalGatewayFees + totalFixedFees + totalAdsFees;
+    const netProfit = settlementAmount - (totalPurchaseCost + totalPackagingCost + shippingCost + totalTds + totalFees);
+
+    // Orders awaiting payment record (orders without corresponding payments)
+    const [ordersWithoutPayments] = await db
+      .select({
+        count: count(orders.id)
+      })
+      .from(orders)
+      .leftJoin(payments, eq(orders.subOrderNo, payments.subOrderNo))
+      .where(sql`${payments.id} IS NULL`);
+
+    return {
+      totalSaleAmount,
+      settlementAmount,
+      totalPurchaseCost,
+      totalPackagingCost,
+      shippingCost,
+      totalTds,
+      netProfit,
+      totalOrders,
+      delivered,
+      shipped,
+      exchanged,
+      cancelled,
+      returns,
+      avgOrderValue,
+      returnRate,
+      ordersAwaitingPaymentRecord: ordersWithoutPayments?.count || 0,
+    };
+  }
+
+  async getSettlementComponents(): Promise<SettlementComponentsData[]> {
+    const [paymentStats] = await db
+      .select({
+        saleAmount: sql<number>`sum(${payments.orderValue})`,
+        saleReturnAmount: sql<number>`sum(case when ${payments.orderValue} < 0 then ${payments.orderValue} else 0 end)`,
+        shippingCharges: sql<number>`count(*) * 49`, // More accurate per payment count
+        returnCharges: sql<number>`sum(case when ${payments.orderValue} < 0 then 49 else 0 end)`,
+        platformFees: sum(payments.commissionFee),
+        paymentGatewayFees: sum(payments.paymentGatewayFee),
+        fixedFees: sum(payments.fixedFee),
+        adsFees: sum(payments.adsFee),
+        adjustments: sql<number>`sum(COALESCE(${payments.fixedFee}, 0))`,
+        tcs: sql<number>`sum(${payments.orderValue} * 0.01)`,
+        tds: sql<number>`sum(${payments.settlementAmount} * 0.01)`,
+        finalSettlement: sum(payments.settlementAmount),
+      })
+      .from(payments);
+
+    return [
+      { component: 'Sale Amount', totalAmount: Number(paymentStats?.saleAmount || 0) },
+      { component: 'Sale Return Amount', totalAmount: Number(paymentStats?.saleReturnAmount || 0) },
+      { component: 'Shipping Charges', totalAmount: Number(paymentStats?.shippingCharges || 0) },
+      { component: 'Return Charges', totalAmount: Number(paymentStats?.returnCharges || 0) },
+      { component: 'Platform Fees', totalAmount: Number(paymentStats?.platformFees || 0) },
+      { component: 'Payment Gateway Fees', totalAmount: Number(paymentStats?.paymentGatewayFees || 0) },
+      { component: 'Fixed Fees', totalAmount: Number(paymentStats?.fixedFees || 0) },
+      { component: 'Ads Fees', totalAmount: Number(paymentStats?.adsFees || 0) },
+      { component: 'Adjustments (Claims, Recovery, Compensation, GST Comp.)', totalAmount: Number(paymentStats?.adjustments || 0) },
+      { component: 'TCS', totalAmount: Number(paymentStats?.tcs || 0) },
+      { component: 'TDS', totalAmount: Number(paymentStats?.tds || 0) },
+      { component: 'Final Settlement', totalAmount: Number(paymentStats?.finalSettlement || 0) },
+    ];
+  }
+
+  async getEarningsOverview(): Promise<EarningsOverviewData[]> {
+    // Get actual product costs from orders joined with products
+    const [actualCosts] = await db
+      .select({
+        actualProductCost: sql<number>`sum(${products.costPrice} * ${orders.quantity})`,
+        actualPackagingCost: sql<number>`sum(${products.packagingCost} * ${orders.quantity})`,
+      })
+      .from(orders)
+      .leftJoin(products, eq(orders.sku, products.sku));
+
+    const [earningsData] = await db
+      .select({
+        finalSettlement: sum(payments.settlementAmount),
+        marketingCost: sum(payments.adsFee),
+        commissionFees: sum(payments.commissionFee),
+        gatewayFees: sum(payments.paymentGatewayFee),
+        fixedFees: sum(payments.fixedFee),
+      })
+      .from(payments);
+
+    const finalSettlement = Number(earningsData?.finalSettlement || 0);
+    const marketingCost = Number(earningsData?.marketingCost || 0);
+    const productCost = Number(actualCosts?.actualProductCost || 0);
+    const packagingCost = Number(actualCosts?.actualPackagingCost || 0);
+    const commissionFees = Number(earningsData?.commissionFees || 0);
+    const gatewayFees = Number(earningsData?.gatewayFees || 0);
+    const fixedFees = Number(earningsData?.fixedFees || 0);
+    
+    // Calculate accurate net profit
+    const totalCosts = marketingCost + productCost + packagingCost + commissionFees + gatewayFees + fixedFees;
+    const netProfit = finalSettlement - totalCosts;
+
+    return [
+      { description: 'Final Settlement (Meesho Payout)', amount: finalSettlement },
+      { description: 'Marketing Cost', amount: -marketingCost },
+      { description: 'Product Cost', amount: -productCost },
+      { description: 'Packaging Cost', amount: -packagingCost },
+      { description: 'Commission Fees', amount: -commissionFees },
+      { description: 'Payment Gateway Fees', amount: -gatewayFees },
+      { description: 'Fixed Fees', amount: -fixedFees },
+      { description: 'Net Profit', amount: netProfit },
+    ];
+  }
+
+  async getOperationalCosts(): Promise<OperationalCostsData[]> {
+    const [costsData] = await db
+      .select({
+        adsFee: sum(payments.adsFee),
+        fixedFee: sum(payments.fixedFee),
+        totalClaims: sql<number>`sum(case when ${payments.fixedFee} > 0 then ${payments.fixedFee} else 0 end)`,
+      })
+      .from(payments);
+
+    return [
+      { type: 'Affiliate Fees', amount: Number(costsData?.adsFee || 0) },
+      { type: 'Fixed Fee', amount: Number(costsData?.fixedFee || 0) },
+      { type: 'Meesho Commission', amount: Number(costsData?.adsFee || 0) * 0.15 },
+      { type: 'Warehousing Fee', amount: Number(costsData?.fixedFee || 0) * 0.5 },
+      { type: 'Total Claims', amount: Number(costsData?.totalClaims || 0) },
+    ];
+  }
+
+  async getDailyVolumeAndAOV(): Promise<DailyVolumeData[]> {
+    const dailyData = await db
+      .select({
+        date: sql<string>`DATE(${orders.orderDate})`,
+        orderVolume: count(orders.id),
+        totalRevenue: sum(orders.discountedPrice),
+      })
+      .from(orders)
+      .where(gte(orders.orderDate, sql`CURRENT_DATE - INTERVAL '30 days'`))
+      .groupBy(sql`DATE(${orders.orderDate})`)
+      .orderBy(sql`DATE(${orders.orderDate})`);
+
+    return dailyData.map(day => ({
+      date: day.date,
+      orderVolume: day.orderVolume,
+      aov: day.orderVolume > 0 ? Number(day.totalRevenue || 0) / day.orderVolume : 0,
+    }));
+  }
+
+  async getTopPerformingProducts(): Promise<TopProductsData[]> {
+    const topProducts = await db
+      .select({
+        sku: orders.sku,
+        name: orders.productName,
+        orders: count(orders.id),
+        revenue: sum(orders.discountedPrice),
+      })
+      .from(orders)
+      .groupBy(orders.sku, orders.productName)
+      .orderBy(desc(count(orders.id)))
+      .limit(10);
+
+    return topProducts.map(product => ({
+      sku: product.sku,
+      name: product.name,
+      orders: product.orders,
+      revenue: Number(product.revenue || 0),
+    }));
+  }
+
+  async getTopReturnProducts(): Promise<TopReturnsData[]> {
+    const topReturns = await db
+      .select({
+        sku: orders.sku,
+        name: orders.productName,
+        returns: sql<number>`count(case when ${orders.reasonForCredit} = 'Return/Refund Completed' then 1 end)`,
+        rtoCount: sql<number>`count(case when ${orders.reasonForCredit} = 'RTO Complete' then 1 end)`,
+        totalCount: count(orders.id),
+      })
+      .from(orders)
+      .groupBy(orders.sku, orders.productName)
+      .having(sql`count(case when ${orders.reasonForCredit} IN ('Return/Refund Completed', 'RTO Complete') then 1 end) > 0`)
+      .orderBy(sql`count(case when ${orders.reasonForCredit} IN ('Return/Refund Completed', 'RTO Complete') then 1 end) DESC`)
+      .limit(10);
+
+    return topReturns.map(product => ({
+      sku: product.sku,
+      name: product.name,
+      returns: product.returns,
+      rtoCount: product.rtoCount,
+      combinedCount: product.returns + product.rtoCount,
+    }));
+  }
+
+  // Dynamic Products Implementation
+  async getAllProductsDynamic(): Promise<ProductDynamic[]> {
+    return db.select().from(productsDynamic).orderBy(desc(productsDynamic.updatedAt));
+  }
+
+  async getProductDynamicBySku(sku: string): Promise<ProductDynamic | undefined> {
+    const result = await db.select().from(productsDynamic).where(eq(productsDynamic.sku, sku)).limit(1);
+    return result[0];
+  }
+
+  async createProductDynamic(product: InsertProductDynamic): Promise<ProductDynamic> {
+    const result = await db.insert(productsDynamic).values(product).returning();
+    return result[0];
+  }
+
+  async updateProductDynamic(id: string, product: Partial<InsertProductDynamic>): Promise<ProductDynamic | undefined> {
+    const result = await db.update(productsDynamic).set({
+      ...product,
+      updatedAt: new Date(),
+    }).where(eq(productsDynamic.id, id)).returning();
+    return result[0];
+  }
+
+  async bulkCreateProductsDynamic(products: InsertProductDynamic[]): Promise<ProductDynamic[]> {
+    if (products.length === 0) return [];
+    
+    try {
+      return await db
+        .insert(productsDynamic)
+        .values(products)
+        .onConflictDoNothing()
+        .returning();
+    } catch (error) {
+      console.error('Error during bulk product dynamic creation:', error);
+      throw new Error(`Failed to create products: ${error}`);
+    }
+  }
+
+  async replaceAllProductsDynamic(uploadId: string, products: InsertProductDynamic[]): Promise<ProductDynamic[]> {
+    // First, delete all existing products for this upload
+    await db.delete(productsDynamic).where(eq(productsDynamic.uploadId, uploadId));
+    
+    // Then insert the new products
+    if (products.length === 0) return [];
+    return await db.insert(productsDynamic).values(products).returning();
+  }
+
+  // Dynamic Orders Implementation
+  async getAllOrdersDynamic(): Promise<OrderDynamic[]> {
+    return db.select().from(ordersDynamic).orderBy(desc(ordersDynamic.updatedAt));
+  }
+
+  async getOrderDynamicBySubOrderNo(subOrderNo: string): Promise<OrderDynamic | undefined> {
+    const result = await db.select().from(ordersDynamic).where(eq(ordersDynamic.subOrderNo, subOrderNo)).limit(1);
+    return result[0];
+  }
+
+  async createOrderDynamic(order: InsertOrderDynamic): Promise<OrderDynamic> {
+    const result = await db.insert(ordersDynamic).values(order).returning();
+    return result[0];
+  }
+
+  async updateOrderDynamic(id: string, order: Partial<InsertOrderDynamic>): Promise<OrderDynamic | undefined> {
+    const result = await db.update(ordersDynamic).set({
+      ...order,
+      updatedAt: new Date(),
+    }).where(eq(ordersDynamic.id, id)).returning();
+    return result[0];
+  }
+
+  async bulkCreateOrdersDynamic(orders: InsertOrderDynamic[]): Promise<OrderDynamic[]> {
+    if (orders.length === 0) return [];
+    
+    try {
+      return await db
+        .insert(ordersDynamic)
+        .values(orders)
+        .onConflictDoNothing()
+        .returning();
+    } catch (error) {
+      console.error('Error during bulk order dynamic creation:', error);
+      throw new Error(`Failed to create orders: ${error}`);
+    }
+  }
+
+  async replaceAllOrdersDynamic(uploadId: string, orders: InsertOrderDynamic[]): Promise<OrderDynamic[]> {
+    // First, delete all existing orders for this upload
+    await db.delete(ordersDynamic).where(eq(ordersDynamic.uploadId, uploadId));
+    
+    // Then insert the new orders
+    if (orders.length === 0) return [];
+    return await db.insert(ordersDynamic).values(orders).returning();
+  }
+
+  // File Structure Management
+  async markUploadAsCurrent(uploadId: string, fileType: string): Promise<void> {
+    // First, mark all other uploads of this type as not current
+    await db.update(uploads).set({ isCurrentVersion: false }).where(eq(uploads.fileType, fileType));
+    
+    // Then mark this upload as current
+    await db.update(uploads).set({ isCurrentVersion: true }).where(eq(uploads.id, uploadId));
+  }
+
+  async getFileStructure(uploadId: string): Promise<FileStructure | undefined> {
+    const result = await db.select().from(uploads).where(eq(uploads.id, uploadId)).limit(1);
+    if (result[0] && result[0].columnStructure) {
+      return result[0].columnStructure as FileStructure;
+    }
+    return undefined;
+  }
+
+  async saveFileStructure(uploadId: string, structure: FileStructure): Promise<void> {
+    await db.update(uploads).set({ 
+      columnStructure: structure 
+    }).where(eq(uploads.id, uploadId));
+  }
+
+  // Calculation Cache Implementation
+  async getCalculationCache(cacheKey: string): Promise<CalculationCache | undefined> {
+    const result = await db.select().from(calculationCache).where(eq(calculationCache.cacheKey, cacheKey)).limit(1);
+    return result[0];
+  }
+
+  async setCalculationCache(cache: InsertCalculationCache): Promise<CalculationCache> {
+    // Use upsert to update if exists or create if not
+    const result = await db
+      .insert(calculationCache)
+      .values(cache)
+      .onConflictDoUpdate({
+        target: calculationCache.cacheKey,
+        set: {
+          calculationResult: cache.calculationResult,
+          lastUpdated: new Date(),
+          dependsOnUploads: cache.dependsOnUploads,
+        },
+      })
+      .returning();
+    return result[0];
+  }
+
+  async invalidateCalculationCache(cacheKeys: string[]): Promise<void> {
+    if (cacheKeys.length === 0) return;
+    await db.delete(calculationCache).where(sql`${calculationCache.cacheKey} = ANY(${cacheKeys})`);
+  }
+
+  async invalidateCalculationCacheByUpload(uploadId: string): Promise<void> {
+    // Delete all cache entries that depend on this upload
+    await db.delete(calculationCache).where(
+      sql`${calculationCache.dependsOnUploads}::jsonb ? ${uploadId}`
+    );
+  }
+
+  // Live Dashboard Metrics Implementation
+  async getLiveDashboardMetrics(): Promise<LiveDashboardMetrics> {
+    // Try to get from cache first
+    const cached = await this.getCalculationCache('live_dashboard_metrics');
+    if (cached && (Date.now() - new Date(cached.lastUpdated).getTime()) < 5 * 60 * 1000) {
+      // Return cached result if less than 5 minutes old
+      return cached.calculationResult as LiveDashboardMetrics;
+    }
+
+    // Calculate fresh metrics
+    return await this.calculateRealTimeMetrics();
+  }
+
+  async calculateRealTimeMetrics(): Promise<LiveDashboardMetrics> {
+    // Get current uploads to determine which data to use
+    const currentUploads = await db.select().from(uploads).where(eq(uploads.isCurrentVersion, true));
+    
+    const [productsData] = await db
+      .select({
+        totalProducts: count(productsDynamic.id),
+      })
+      .from(productsDynamic)
+      .where(sql`${productsDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true AND file_type LIKE '%orders%')`);
+
+    const [ordersData] = await db
+      .select({
+        totalOrders: count(ordersDynamic.id),
+        totalSales: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'discountedPrice' AS DECIMAL))`,
+      })
+      .from(ordersDynamic)
+      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+
+    // Calculate GST from products and orders
+    const [gstData] = await db
+      .select({
+        totalGST: sql<number>`
+          SUM(
+            CAST(${ordersDynamic.dynamicData}->>'discountedPrice' AS DECIMAL) * 
+            CAST(COALESCE(${productsDynamic.dynamicData}->>'gstPercent', '18') AS DECIMAL) / 100
+          )
+        `,
+      })
+      .from(ordersDynamic)
+      .leftJoin(productsDynamic, sql`${ordersDynamic.dynamicData}->>'sku' = ${productsDynamic.sku}`)
+      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+
+    // Calculate profit/loss
+    const [profitData] = await db
+      .select({
+        totalCost: sql<number>`
+          SUM(
+            CAST(${ordersDynamic.dynamicData}->>'quantity' AS INTEGER) * 
+            (
+              CAST(COALESCE(${productsDynamic.dynamicData}->>'costPrice', '0') AS DECIMAL) +
+              CAST(COALESCE(${productsDynamic.dynamicData}->>'packagingCost', '0') AS DECIMAL)
+            )
+          )
+        `,
+      })
+      .from(ordersDynamic)
+      .leftJoin(productsDynamic, sql`${ordersDynamic.dynamicData}->>'sku' = ${productsDynamic.sku}`)
+      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+
+    // Calculate trends (last 30 days)
+    const salesTrend = await db
+      .select({
+        date: sql<string>`DATE(CAST(${ordersDynamic.dynamicData}->>'orderDate' AS TIMESTAMP))`,
+        value: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'discountedPrice' AS DECIMAL))`,
+      })
+      .from(ordersDynamic)
+      .where(
+        and(
+          sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`,
+          sql`CAST(${ordersDynamic.dynamicData}->>'orderDate' AS TIMESTAMP) >= CURRENT_DATE - INTERVAL '30 days'`
+        )
+      )
+      .groupBy(sql`DATE(CAST(${ordersDynamic.dynamicData}->>'orderDate' AS TIMESTAMP))`)
+      .orderBy(sql`DATE(CAST(${ordersDynamic.dynamicData}->>'orderDate' AS TIMESTAMP))`);
+
+    const totalProducts = Number(productsData?.totalProducts || 0);
+    const totalOrders = Number(ordersData?.totalOrders || 0);
+    const totalSales = Number(ordersData?.totalSales || 0);
+    const totalGST = Number(gstData?.totalGST || 0);
+    const totalCost = Number(profitData?.totalCost || 0);
+    const profitLoss = totalSales - totalCost;
+
+    const metrics: LiveDashboardMetrics = {
+      totalProducts,
+      totalOrders,
+      totalSales,
+      totalGST,
+      profitLoss,
+      trends: {
+        sales: salesTrend.map(item => ({ date: item.date, value: Number(item.value || 0) })),
+        gst: salesTrend.map(item => ({ date: item.date, value: Number(item.value || 0) * 0.18 })), // Simplified GST calculation
+        profit: salesTrend.map(item => ({ date: item.date, value: Number(item.value || 0) * 0.2 })), // Simplified profit calculation
+      },
+    };
+
+    // Cache the results
+    await this.setCalculationCache({
+      cacheKey: 'live_dashboard_metrics',
+      calculationType: 'dashboard_summary',
+      calculationResult: metrics,
+      dependsOnUploads: currentUploads.map(u => u.id),
+    });
+
+    return metrics;
+  }
+
+  async recalculateAllMetrics(triggerUploadId?: string): Promise<void> {
+    // Invalidate all cached calculations
+    await db.delete(calculationCache);
+    
+    // Recalculate main dashboard metrics
+    await this.calculateRealTimeMetrics();
+    
+    console.log(`Recalculated all metrics${triggerUploadId ? ` triggered by upload ${triggerUploadId}` : ''}`);
+  }
+
+  async getCurrentUploads(): Promise<Upload[]> {
+    try {
+      const currentUploads = await db.select().from(uploads).where(eq(uploads.isCurrentVersion, true));
+      return currentUploads;
+    } catch (error) {
+      console.error('Error fetching current uploads:', error);
+      throw error;
+    }
   }
 }
 

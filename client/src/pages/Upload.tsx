@@ -16,6 +16,7 @@ export default function Upload() {
   const [ordersFiles, setOrdersFiles] = useState<FileList | null>(null);
   const [sourceMonth, setSourceMonth] = useState('');
   const [label, setLabel] = useState('');
+  const [gstPercent, setGstPercent] = useState('18');
   const { toast } = useToast();
   const { token } = useAuth();
   const queryClient = useQueryClient();
@@ -128,6 +129,7 @@ export default function Upload() {
       formData.append('file', ordersFiles[0]);
       formData.append('fileType', 'orders_csv');
       formData.append('label', label);
+      formData.append('gstPercent', gstPercent);
       uploads.push(formData);
     }
 
@@ -241,16 +243,35 @@ export default function Upload() {
                 </div>
               )}
               
-              <div className="mt-4">
-                <Label htmlFor="label">Label (Optional)</Label>
-                <Input
-                  id="label"
-                  type="text"
-                  placeholder="e.g., August 2024 Orders"
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                  data-testid="input-label"
-                />
+              <div className="mt-4 space-y-4">
+                <div>
+                  <Label htmlFor="label">Label (Optional)</Label>
+                  <Input
+                    id="label"
+                    type="text"
+                    placeholder="e.g., August 2024 Orders"
+                    value={label}
+                    onChange={(e) => setLabel(e.target.value)}
+                    data-testid="input-label"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="gst-percent">Default GST % for New Products</Label>
+                  <Input
+                    id="gst-percent"
+                    type="number"
+                    min="0"
+                    max="50"
+                    step="0.1"
+                    placeholder="18"
+                    value={gstPercent}
+                    onChange={(e) => setGstPercent(e.target.value)}
+                    data-testid="input-gst-percent"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    This GST % will be applied to new products created from this upload (if GST is not specified in the CSV)
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>

@@ -98,6 +98,173 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Enhanced Dashboard Analytics Endpoints
+  app.get('/api/dashboard/comprehensive-summary', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const summary = await storage.getComprehensiveFinancialSummary();
+      res.json(summary);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch comprehensive financial summary' });
+    }
+  });
+
+  app.get('/api/dashboard/settlement-components', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const components = await storage.getSettlementComponents();
+      res.json(components);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch settlement components' });
+    }
+  });
+
+  app.get('/api/dashboard/earnings-overview', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const earnings = await storage.getEarningsOverview();
+      res.json(earnings);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch earnings overview' });
+    }
+  });
+
+  app.get('/api/dashboard/operational-costs', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const costs = await storage.getOperationalCosts();
+      res.json(costs);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch operational costs' });
+    }
+  });
+
+  app.get('/api/dashboard/daily-volume', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const dailyVolume = await storage.getDailyVolumeAndAOV();
+      res.json(dailyVolume);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch daily volume data' });
+    }
+  });
+
+  app.get('/api/dashboard/top-products', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const topProducts = await storage.getTopPerformingProducts();
+      res.json(topProducts);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch top products' });
+    }
+  });
+
+  app.get('/api/dashboard/top-returns', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const topReturns = await storage.getTopReturnProducts();
+      res.json(topReturns);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch top return products' });
+    }
+  });
+
+  // Live Dashboard Metrics
+  app.get('/api/dashboard/live-metrics', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const liveMetrics = await storage.getLiveDashboardMetrics();
+      res.json(liveMetrics);
+    } catch (error) {
+      console.error('Failed to fetch live dashboard metrics:', error);
+      res.status(500).json({ message: 'Failed to fetch live dashboard metrics' });
+    }
+  });
+
+  app.post('/api/dashboard/recalculate', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      await storage.recalculateAllMetrics();
+      res.json({ message: 'Metrics recalculated successfully' });
+    } catch (error) {
+      console.error('Failed to recalculate metrics:', error);
+      res.status(500).json({ message: 'Failed to recalculate metrics' });
+    }
+  });
+
+  // Dynamic Data Routes
+  app.get('/api/products-dynamic', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const products = await storage.getAllProductsDynamic();
+      res.json(products);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch dynamic products' });
+    }
+  });
+
+  app.put('/api/products-dynamic/:id', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const updatedProduct = await storage.updateProductDynamic(id, req.body);
+      
+      if (updatedProduct) {
+        // Trigger real-time recalculation
+        await storage.recalculateAllMetrics();
+        res.json(updatedProduct);
+      } else {
+        res.status(404).json({ message: 'Product not found' });
+      }
+    } catch (error) {
+      console.error('Failed to update dynamic product:', error);
+      res.status(500).json({ message: 'Failed to update product' });
+    }
+  });
+
+  app.get('/api/orders-dynamic', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const orders = await storage.getAllOrdersDynamic();
+      res.json(orders);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to fetch dynamic orders' });
+    }
+  });
+
+  app.put('/api/orders-dynamic/:id', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const updatedOrder = await storage.updateOrderDynamic(id, req.body);
+      
+      if (updatedOrder) {
+        // Trigger real-time recalculation
+        await storage.recalculateAllMetrics();
+        res.json(updatedOrder);
+      } else {
+        res.status(404).json({ message: 'Order not found' });
+      }
+    } catch (error) {
+      console.error('Failed to update dynamic order:', error);
+      res.status(500).json({ message: 'Failed to update order' });
+    }
+  });
+
+  // File Structure Routes
+  app.get('/api/file-structure/:uploadId', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const { uploadId } = req.params;
+      const fileStructure = await storage.getFileStructure(uploadId);
+      
+      if (fileStructure) {
+        res.json(fileStructure);
+      } else {
+        res.status(404).json({ message: 'File structure not found' });
+      }
+    } catch (error) {
+      console.error('Failed to fetch file structure:', error);
+      res.status(500).json({ message: 'Failed to fetch file structure' });
+    }
+  });
+
+  app.get('/api/current-uploads', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const currentUploads = await storage.getCurrentUploads();
+      res.json(currentUploads);
+    } catch (error) {
+      console.error('Failed to fetch current uploads:', error);
+      res.status(500).json({ message: 'Failed to fetch current uploads' });
+    }
+  });
+
   // Upload routes
   app.post('/api/upload', authenticateUser, upload.single('file'), async (req: Request, res: Response) => {
     try {
@@ -105,7 +272,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'No file uploaded' });
       }
 
-      const { fileType, sourceMonth, label } = req.body;
+      const { fileType, sourceMonth, label, gstPercent } = req.body;
       
       // Create upload record
       const uploadRecord = await storage.createUpload({
@@ -119,7 +286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Process file asynchronously
-      processFileAsync(uploadRecord.id, req.file.buffer, fileType);
+      processFileAsync(uploadRecord.id, req.file.buffer, fileType, gstPercent);
 
       res.json({ uploadId: uploadRecord.id, status: 'processing' });
     } catch (error) {
@@ -238,25 +405,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
 }
 
 // Async file processing
-async function processFileAsync(uploadId: string, buffer: Buffer, fileType: string) {
+async function processFileAsync(uploadId: string, buffer: Buffer, fileType: string, gstPercent?: string) {
   try {
     let result;
+    let recordsProcessed = 0;
     
     if (fileType === 'orders_csv') {
-      result = await FileProcessor.processOrdersCSV(buffer);
-      if (result.orders) {
-        await storage.bulkCreateOrders(result.orders);
-        await FileProcessor.extractProductsFromOrders(result.orders);
-        await storage.updateUploadStatus(uploadId, 'processed', result.orders.length, result.errors);
+      // Use new dynamic processing for orders
+      const dynamicResult = await FileProcessor.processOrdersCSVDynamic(buffer, uploadId);
+      
+      if (dynamicResult.data && dynamicResult.data.length > 0) {
+        // Convert dynamic data to order records
+        const ordersDynamic = dynamicResult.data.map(row => ({
+          uploadId,
+          dynamicData: row,
+          subOrderNo: row['Sub Order No'] || row['subOrderNo'] || '',
+        }));
+
+        // Replace all existing orders for this upload (data overwrite)
+        await storage.replaceAllOrdersDynamic(uploadId, ordersDynamic);
+        
+        // Extract and replace products from the order data
+        const productsDynamic = await FileProcessor.extractProductsFromOrdersDynamic(
+          dynamicResult.data, 
+          uploadId, 
+          gstPercent || '18'
+        );
+        
+        if (productsDynamic.length > 0) {
+          await storage.replaceAllProductsDynamic(uploadId, productsDynamic);
+        }
+
+        // Save file structure metadata
+        await storage.saveFileStructure(uploadId, dynamicResult.fileStructure);
+        
+        // Mark this upload as the current version
+        await storage.markUploadAsCurrent(uploadId, fileType);
+        
+        recordsProcessed = dynamicResult.data.length;
+        
+        // Trigger real-time calculation update
+        await storage.recalculateAllMetrics(uploadId);
+        
+        console.log(`Processed ${recordsProcessed} orders dynamically, extracted ${productsDynamic.length} products`);
       }
+
+      // Also process using legacy method for backward compatibility
+      const legacyResult = await FileProcessor.processOrdersCSV(buffer);
+      if (legacyResult.orders) {
+        await storage.bulkCreateOrders(legacyResult.orders);
+        await FileProcessor.extractProductsFromOrders(legacyResult.orders, gstPercent || '18');
+      }
+
+      await storage.updateUploadStatus(uploadId, 'processed', recordsProcessed, dynamicResult.errors);
+      
     } else if (fileType === 'payment_zip') {
       result = await FileProcessor.processPaymentsXLSX(buffer);
       if (result.payments) {
         await storage.bulkCreatePayments(result.payments);
         await storage.updateUploadStatus(uploadId, 'processed', result.payments.length, result.errors);
+        
+        // Trigger real-time calculation update for payments
+        await storage.recalculateAllMetrics(uploadId);
       }
+    } else if (fileType === 'products_csv') {
+      // Handle product files dynamically
+      const dynamicResult = await FileProcessor.processGenericCSV(buffer, uploadId, 'SKU');
+      
+      if (dynamicResult.data && dynamicResult.data.length > 0) {
+        const productsDynamic = dynamicResult.data.map(row => ({
+          uploadId,
+          dynamicData: row,
+          sku: row['SKU'] || row['sku'] || '',
+        }));
+
+        // Replace all existing products for this upload
+        await storage.replaceAllProductsDynamic(uploadId, productsDynamic);
+        
+        // Save file structure metadata
+        await storage.saveFileStructure(uploadId, dynamicResult.fileStructure);
+        
+        // Mark this upload as current
+        await storage.markUploadAsCurrent(uploadId, fileType);
+        
+        recordsProcessed = dynamicResult.data.length;
+        
+        // Trigger real-time calculation update
+        await storage.recalculateAllMetrics(uploadId);
+        
+        console.log(`Processed ${recordsProcessed} products dynamically`);
+      }
+
+      await storage.updateUploadStatus(uploadId, 'processed', recordsProcessed, dynamicResult.errors);
     }
   } catch (error) {
+    console.error(`File processing error for upload ${uploadId}:`, error);
     await storage.updateUploadStatus(uploadId, 'failed', 0, [String(error)]);
   }
 }
