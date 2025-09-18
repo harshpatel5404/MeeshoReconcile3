@@ -67,11 +67,26 @@ Preferred communication style: Simple, everyday language.
 - **Accessibility**: ARIA compliance and keyboard navigation support
 - **Loading States**: Skeleton loading and progressive enhancement
 
+## App Starting Points
+
+### Database Setup Requirements
+- **PostgreSQL Database**: Must be provisioned using Replit's database tool
+- **Database Schema**: Run `npm run db:push` to create required tables after database provisioning
+- **Initial Setup**: The authentication system requires database tables (users, products, orders, etc.) to function properly
+
+### Known Issues
+- **Login Redirect Issue**: After successful login, users may not be automatically redirected to the dashboard. The authentication backend is working correctly (API calls return 200 status), but the frontend React component state doesn't always trigger the expected redirect from login to dashboard view. This is due to the authentication flow relying on React component re-rendering rather than explicit navigation logic.
+
+### Troubleshooting
+- If authentication fails with "relation 'users' does not exist" errors, run `npm run db:push` to create database tables
+- Login redirect issues can sometimes be resolved by manually refreshing the page after successful authentication
+- Check browser console logs for authentication verification errors
+
 ## External Dependencies
 
 ### Cloud Services
 - **Firebase**: Authentication service and user management
-- **Neon Database**: Serverless PostgreSQL hosting
+- **Neon Database**: Serverless PostgreSQL hosting (replaced with Replit PostgreSQL)
 - **Replit**: Development and deployment platform
 
 ### Core Libraries

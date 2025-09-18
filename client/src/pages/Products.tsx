@@ -5,14 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Header from '@/components/Header';
-import { Package, Upload, Search } from 'lucide-react';
+import { Package, Search } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuthQuery, useAuthApiRequest } from '@/hooks/use-auth-query';
-import { useAuth } from '@/contexts/AuthContext';
 
 export default function Products() {
+  const [bulkCostPrice, setBulkCostPrice] = useState('');
   const [bulkPackagingCost, setBulkPackagingCost] = useState('');
-  const [bulkGstPercent, setBulkGstPercent] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -101,6 +100,22 @@ export default function Products() {
     return Math.round(costPlusPackaging * 100) / 100;
   };
 
+
+  const handleBulkSetCost = () => {
+    if (!bulkCostPrice) {
+      toast({
+        title: "Missing value", 
+        description: "Please enter a cost price value.",
+        variant: "destructive",
+      });
+      return;
+    }
+    bulkUpdateMutation.mutate({
+      field: 'costPrice',
+      value: bulkCostPrice
+    });
+  };
+
   const handleBulkSetPackaging = () => {
     if (!bulkPackagingCost) {
       toast({
@@ -113,21 +128,6 @@ export default function Products() {
     bulkUpdateMutation.mutate({
       field: 'packagingCost',
       value: bulkPackagingCost
-    });
-  };
-
-  const handleBulkSetGST = () => {
-    if (!bulkGstPercent) {
-      toast({
-        title: "Missing value", 
-        description: "Please enter a GST percentage value.",
-        variant: "destructive",
-      });
-      return;
-    }
-    bulkUpdateMutation.mutate({
-      field: 'gstPercent',
-      value: bulkGstPercent
     });
   };
 
@@ -163,6 +163,29 @@ export default function Products() {
             {/* Bulk Actions */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
+                <Label htmlFor="bulk-cost">Bulk Set Cost Price</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="bulk-cost"
+                    type="number"
+                    step="0.01"
+                    placeholder="₹ Amount"
+                    value={bulkCostPrice}
+                    onChange={(e) => setBulkCostPrice(e.target.value)}
+                    data-testid="input-bulk-cost-price"
+                  />
+                  <Button 
+                    variant="outline" 
+                    onClick={handleBulkSetCost}
+                    disabled={bulkUpdateMutation.isPending}
+                    data-testid="button-bulk-set-cost"
+                    className="whitespace-nowrap"
+                  >
+                    Apply to All
+                  </Button>
+                </div>
+              </div>
+              <div>
                 <Label htmlFor="bulk-packaging">Bulk Set Packaging Cost</Label>
                 <div className="flex gap-2">
                   <Input
@@ -179,28 +202,7 @@ export default function Products() {
                     onClick={handleBulkSetPackaging}
                     disabled={bulkUpdateMutation.isPending}
                     data-testid="button-bulk-set-packaging"
-                  >
-                    Apply to All
-                  </Button>
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="bulk-gst">Bulk Set GST %</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="bulk-gst"
-                    type="number"
-                    step="0.1"
-                    placeholder="% Rate"
-                    value={bulkGstPercent}
-                    onChange={(e) => setBulkGstPercent(e.target.value)}
-                    data-testid="input-bulk-gst-percent"
-                  />
-                  <Button 
-                    variant="outline" 
-                    onClick={handleBulkSetGST}
-                    disabled={bulkUpdateMutation.isPending}
-                    data-testid="button-bulk-set-gst"
+                    className="whitespace-nowrap"
                   >
                     Apply to All
                   </Button>
@@ -255,7 +257,7 @@ export default function Products() {
                     filteredProducts.map((product: any, index: number) => {
                       const costPrice = parseFloat(product.costPrice || '0');
                       const packagingCost = parseFloat(product.packagingCost || '0');
-                      const gstPercent = parseFloat(product.gstPercent || '18');
+                      const gstPercent = parseFloat(product.gstPercent ?? '18');
                       const finalPrice = calculateFinalPrice(costPrice, packagingCost);
                       
                       return (
@@ -283,7 +285,17 @@ export default function Products() {
                             />
                           </td>
                           <td className="px-4 py-3 text-sm">
-                            <span className="font-medium">{gstPercent}%</span>
+                            <Input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              max="100"
+                              defaultValue={product.gstPercent ?? '18'}
+                              onBlur={(e) => handleProductUpdate(product.sku, 'gstPercent', e.target.value)}
+                              className="w-20"
+                              placeholder="18"
+                              data-testid={`input-gst-percent-${product.sku}`}
+                            />
                           </td>
                           <td className="px-4 py-3 text-sm">
                             <div className="flex flex-col">

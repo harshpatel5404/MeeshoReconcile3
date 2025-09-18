@@ -352,7 +352,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { field, value } = req.body;
       
-      if (!['packagingCost', 'gstPercent'].includes(field)) {
+      if (!['packagingCost', 'gstPercent', 'costPrice'].includes(field)) {
         return res.status(400).json({ message: 'Invalid field' });
       }
 
