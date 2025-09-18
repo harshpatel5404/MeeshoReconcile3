@@ -240,16 +240,18 @@ export default function Products() {
                   <tr>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">S.No.</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">SKU</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Product Name</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Cost (₹)</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Packaging (₹)</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">GST (%)</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Total Orders</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Final Price (₹)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                         Loading products...
                       </td>
                     </tr>
@@ -257,13 +259,20 @@ export default function Products() {
                     filteredProducts.map((product: any, index: number) => {
                       const costPrice = parseFloat(product.costPrice || '0');
                       const packagingCost = parseFloat(product.packagingCost || '0');
-                      const gstPercent = parseFloat(product.gstPercent ?? '18');
+                      const gstPercent = parseFloat(product.gstPercent ?? '5');
                       const finalPrice = calculateFinalPrice(costPrice, packagingCost);
                       
                       return (
                         <tr key={product.sku} className="hover:bg-muted/50" data-testid={`row-product-${product.sku}`}>
                           <td className="px-4 py-3 text-sm font-medium text-center">{index + 1}</td>
                           <td className="px-4 py-3 text-sm font-mono">{product.sku}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <div className="max-w-xs">
+                              <span className="text-sm" title={product.title}>
+                                {product.title ? (product.title.length > 30 ? `${product.title.substring(0, 30)}...` : product.title) : '-'}
+                              </span>
+                            </div>
+                          </td>
                           <td className="px-4 py-3 text-sm">
                             <Input
                               type="number"
@@ -290,12 +299,18 @@ export default function Products() {
                               step="0.1"
                               min="0"
                               max="100"
-                              defaultValue={product.gstPercent ?? '18'}
+                              defaultValue={product.gstPercent ?? '5'}
                               onBlur={(e) => handleProductUpdate(product.sku, 'gstPercent', e.target.value)}
                               className="w-20"
-                              placeholder="18"
+                              placeholder="5"
                               data-testid={`input-gst-percent-${product.sku}`}
                             />
+                          </td>
+                          <td className="px-4 py-3 text-sm text-center">
+                            <div className="flex flex-col">
+                              <span className="font-medium text-blue-600">{product.totalOrders || 0}</span>
+                              <span className="text-xs text-muted-foreground">orders</span>
+                            </div>
                           </td>
                           <td className="px-4 py-3 text-sm">
                             <div className="flex flex-col">
@@ -310,7 +325,7 @@ export default function Products() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                         No products found. {searchQuery ? 'Try adjusting your search.' : 'Upload order files to create products.'}
                       </td>
                     </tr>

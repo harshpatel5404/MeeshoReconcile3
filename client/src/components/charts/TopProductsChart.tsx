@@ -26,7 +26,7 @@ export default function TopProductsChart() {
   // Format data for chart display
   const chartFormattedData = chartData.map(item => ({
     ...item,
-    displayName: item.name.length > 15 ? `${item.name.substring(0, 15)}...` : item.name
+    displayName: item.name && item.name.length > 15 ? `${item.name.substring(0, 15)}...` : (item.name || 'Unknown Product')
   }));
 
   return (

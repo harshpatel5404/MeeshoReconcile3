@@ -46,6 +46,37 @@ export class FileProcessor {
     return '0';
   }
 
+  // Helper method to sanitize GST fields with proper validation and fallback
+  static sanitizeGstField(value: any, defaultGst: string = '5'): string {
+    if (value == null || value === '') return defaultGst;
+    
+    if (typeof value === 'number') {
+      // Valid number, ensure it's reasonable for GST (0-100)
+      const numValue = Number(value);
+      if (numValue >= 0 && numValue <= 100) {
+        return value.toString();
+      }
+      return defaultGst;
+    }
+    
+    if (typeof value === 'string') {
+      // Remove % symbol, whitespace, and common formatting
+      const cleaned = value.trim().replace(/[%\s]/g, '');
+      
+      // Check if it's a valid number after cleaning
+      if (cleaned && !isNaN(Number(cleaned))) {
+        const numValue = Number(cleaned);
+        // Ensure GST is within reasonable range (0-100)
+        if (numValue >= 0 && numValue <= 100) {
+          return cleaned;
+        }
+      }
+    }
+    
+    // Invalid or out of range value, use default
+    return defaultGst;
+  }
+
   // Extract XLSX files from ZIP archive
   static async extractXLSXFromZip(buffer: Buffer): Promise<{ xlsxBuffer: Buffer; filename: string } | null> {
     try {
@@ -234,11 +265,9 @@ export class FileProcessor {
           const productGst = row['Product GST %'] || row['Product GST'] || row['GST %'] || row['GST Percent'];
           
           if (sku && productGst && !productGstUpdates.has(sku)) {
-            // Clean GST value - remove % symbol if present
-            const cleanGst = typeof productGst === 'string' 
-              ? productGst.replace('%', '').trim() 
-              : productGst.toString();
-            productGstUpdates.set(sku, cleanGst);
+            // Clean and validate GST value
+            const sanitizedGst = FileProcessor.sanitizeGstField(productGst);
+            productGstUpdates.set(sku, sanitizedGst);
           }
 
           // Validation
@@ -275,7 +304,7 @@ export class FileProcessor {
   static async extractProductsFromOrdersDynamic(
     orderData: Record<string, any>[], 
     uploadId: string, 
-    defaultGstPercent: string = '18'
+    defaultGstPercent: string = '5'
   ): Promise<InsertProductDynamic[]> {
     const uniqueProducts = new Map<string, InsertProductDynamic>();
 

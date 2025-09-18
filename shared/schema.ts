@@ -19,7 +19,7 @@ export const products = pgTable("products", {
   costPrice: decimal("cost_price", { precision: 10, scale: 2 }).default("0"),
   packagingCost: decimal("packaging_cost", { precision: 10, scale: 2 }).default("0"),
   finalPrice: decimal("final_price", { precision: 10, scale: 2 }).default("0"),
-  gstPercent: decimal("gst_percent", { precision: 5, scale: 2 }).default("18"),
+  gstPercent: decimal("gst_percent", { precision: 5, scale: 2 }).default("5"),
   totalOrders: integer("total_orders").default(0),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
