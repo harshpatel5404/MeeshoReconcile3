@@ -37,6 +37,8 @@ export const orders = pgTable("orders", {
   discountedPrice: decimal("discounted_price", { precision: 10, scale: 2 }).notNull(),
   packetId: text("packet_id"),
   reasonForCredit: text("reason_for_credit").notNull(),
+  paymentStatus: text("payment_status"), // Mapped from reasonForCredit: PAID, REFUNDED, CANCELLED, etc.
+  paymentDate: timestamp("payment_date"), // Date when payment was processed
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

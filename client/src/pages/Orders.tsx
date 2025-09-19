@@ -89,16 +89,31 @@ export default function Orders() {
     }
   };
 
-  const getPaymentStatusBadge = (hasPayment: boolean, settlementAmount?: number, paymentDate?: string) => {
-    // Improved payment status logic - check for finite settlement amounts (including 0 and negative)
+  const getPaymentStatusBadge = (paymentStatus?: string, hasPayment?: boolean, settlementAmount?: number, paymentDate?: string) => {
+    // Use enhanced payment status from orders table first, then fallback to legacy logic
+    if (paymentStatus) {
+      switch (paymentStatus.toUpperCase()) {
+        case 'PAID':
+          return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Paid</Badge>;
+        case 'REFUNDED':
+          return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Refunded</Badge>;
+        case 'CANCELLED':
+          return <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200">Cancelled</Badge>;
+        case 'PROCESSING':
+          return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">Processing</Badge>;
+        case 'LOST':
+          return <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">Lost</Badge>;
+        default:
+          return <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200">Pending</Badge>;
+      }
+    }
+    
+    // Fallback to legacy logic for backward compatibility
     if (typeof settlementAmount === 'number' && isFinite(settlementAmount)) {
-      // We have settlement data - payment is settled regardless of hasPayment flag
       return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Settled</Badge>;
     } else if (hasPayment || paymentDate) {
-      // Payment record exists but no settlement amount yet
       return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">Processing</Badge>;
     } else {
-      // No payment record or settlement data
       return <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">Pending</Badge>;
     }
   };
@@ -296,22 +311,17 @@ export default function Orders() {
                           </td>
                           <td className="px-4 py-3 text-sm">{formatCurrency(order.listedPrice)}</td>
                           <td className="px-4 py-3 text-sm font-medium">
-                            <div className="flex flex-col">
-                              {typeof settlementAmount === 'number' && isFinite(settlementAmount) ? (
-                                <span className={`font-semibold ${
-                                  settlementAmount > 0 ? "text-green-600" : 
-                                  settlementAmount === 0 ? "text-yellow-600" : 
-                                  "text-red-600"
-                                }`}>
-                                  {formatCurrency(settlementAmount)}
-                                </span>
-                              ) : (
-                                <>
-                                  <span className="text-gray-500">-</span>
-                                  <span className="text-xs text-muted-foreground">No payment data</span>
-                                </>
-                              )}
-                            </div>
+                            {typeof settlementAmount === 'number' && isFinite(settlementAmount) ? (
+                              <span className={`font-semibold ${
+                                settlementAmount > 0 ? "text-green-600" : 
+                                settlementAmount === 0 ? "text-yellow-600" : 
+                                "text-red-600"
+                              }`}>
+                                {formatCurrency(settlementAmount)}
+                              </span>
+                            ) : (
+                              <span className="text-gray-500">-</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-sm">
                             <div className="flex flex-col">
@@ -322,24 +332,19 @@ export default function Orders() {
                             </div>
                           </td>
                           <td className="px-4 py-3 text-sm">
-                            <div className="flex flex-col">
-                              {profitLoss.amount !== null ? (
-                                <span className={`font-medium ${profitLoss.isProfit ? 'text-green-600' : 'text-red-600'}`}>
-                                  {profitLoss.formatted}
-                                </span>
-                              ) : (
-                                <span className="text-gray-500">-</span>
-                              )}
-                              {profitLoss.note && (
-                                <span className="text-xs text-muted-foreground">{profitLoss.note}</span>
-                              )}
-                            </div>
+                            {profitLoss.amount !== null ? (
+                              <span className={`font-medium ${profitLoss.isProfit ? 'text-green-600' : 'text-red-600'}`}>
+                                {profitLoss.formatted}
+                              </span>
+                            ) : (
+                              <span className="text-gray-500">-</span>
+                            )}
                           </td>
                           <td className="px-4 py-3">
-                            {getStatusBadge(order.reasonForCredit)}
+                            {getStatusBadge(order.reasonForCredit || 'PENDING')}
                           </td>
                           <td className="px-4 py-3">
-                            {getPaymentStatusBadge(order.hasPayment || false, settlementAmount, order.paymentDate)}
+                            {getPaymentStatusBadge(order.paymentStatus, order.hasPayment || false, settlementAmount, order.paymentDate)}
                           </td>
                         </tr>
                       );

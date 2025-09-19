@@ -59,6 +59,9 @@ export interface IStorage {
   getOrderBySubOrderNo(subOrderNo: string): Promise<Order | undefined>;
   createOrder(order: InsertOrder): Promise<Order>;
   bulkCreateOrders(orders: InsertOrder[]): Promise<Order[]>;
+  bulkUpsertOrders(orders: InsertOrder[]): Promise<Order[]>;
+  updateOrderWithPaymentData(subOrderNo: string, paymentData: { paymentDate: Date; paymentStatus: string }): Promise<Order | undefined>;
+  batchUpdateOrdersWithPaymentData(paymentData: Array<{ subOrderNo: string; paymentDate: Date; paymentStatus: string }>): Promise<void>;
 
   // Dynamic Orders
   getAllOrdersDynamic(): Promise<OrderDynamic[]>;
@@ -226,9 +229,11 @@ export class DatabaseStorage implements IStorage {
         discountedPrice: orders.discountedPrice,
         packetId: orders.packetId,
         reasonForCredit: orders.reasonForCredit,
+        paymentStatus: orders.paymentStatus, // Direct payment status from orders table
+        paymentDate: sql<Date>`COALESCE(${orders.paymentDate}, ${payments.settlementDate})`, // Prefer orders.paymentDate, fallback to payments.settlementDate
         createdAt: orders.createdAt,
-        // Payment fields
-        paymentDate: payments.settlementDate,
+        // Payment fields from payments table
+        settlementDate: payments.settlementDate,
         settlementAmount: payments.settlementAmount,
         orderValue: payments.orderValue,
         commissionFee: payments.commissionFee,
@@ -298,6 +303,66 @@ export class DatabaseStorage implements IStorage {
     } catch (error) {
       console.error('Error during bulk order creation:', error);
       throw new Error(`Failed to create orders: ${error}`);
+    }
+  }
+
+  async bulkUpsertOrders(orderList: InsertOrder[]): Promise<Order[]> {
+    if (orderList.length === 0) return [];
+    
+    try {
+      // Use ON CONFLICT to handle duplicates with upsert logic
+      return await db
+        .insert(orders)
+        .values(orderList)
+        .onConflictDoUpdate({
+          target: orders.subOrderNo,
+          set: {
+            paymentStatus: sql.raw('excluded.payment_status'),
+            paymentDate: sql.raw('excluded.payment_date'),
+            reasonForCredit: sql.raw('excluded.reason_for_credit')
+          }
+        })
+        .returning();
+    } catch (error) {
+      console.error('Error during bulk order upsert:', error);
+      throw new Error(`Failed to upsert orders: ${error}`);
+    }
+  }
+
+  async updateOrderWithPaymentData(subOrderNo: string, paymentData: { paymentDate: Date; paymentStatus: string }): Promise<Order | undefined> {
+    try {
+      const result = await db
+        .update(orders)
+        .set({
+          paymentDate: paymentData.paymentDate,
+          paymentStatus: paymentData.paymentStatus,
+        })
+        .where(eq(orders.subOrderNo, subOrderNo))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error(`Error updating order ${subOrderNo} with payment data:`, error);
+      throw error;
+    }
+  }
+
+  async batchUpdateOrdersWithPaymentData(paymentDataList: Array<{ subOrderNo: string; paymentDate: Date; paymentStatus: string }>): Promise<void> {
+    if (paymentDataList.length === 0) return;
+    
+    try {
+      // Use a batch update for better performance
+      const promises = paymentDataList.map(paymentData => 
+        this.updateOrderWithPaymentData(paymentData.subOrderNo, {
+          paymentDate: paymentData.paymentDate,
+          paymentStatus: paymentData.paymentStatus
+        })
+      );
+      
+      await Promise.allSettled(promises);
+      console.log(`Batch updated ${paymentDataList.length} orders with payment data`);
+    } catch (error) {
+      console.error('Error in batchUpdateOrdersWithPaymentData:', error);
+      throw error;
     }
   }
 

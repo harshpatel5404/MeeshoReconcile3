@@ -14,6 +14,43 @@ const upload = multer({
   },
 });
 
+// Helper function to update orders with payment data after processing payments
+async function updateOrdersWithPaymentData(payments: any[]) {
+  try {
+    console.log(`Updating ${payments.length} orders with payment data...`);
+    
+    for (const payment of payments) {
+      if (payment.subOrderNo && payment.settlementDate) {
+        // Determine payment status based on settlement amount (handle both string and number)
+        let paymentStatus = 'PAID';
+        const amount = typeof payment.settlementAmount === 'string' 
+          ? parseFloat(payment.settlementAmount) 
+          : typeof payment.settlementAmount === 'number' 
+          ? payment.settlementAmount 
+          : 0;
+        
+        if (amount <= 0) {
+          paymentStatus = 'REFUNDED';
+        }
+        
+        try {
+          // Update the order with payment date and status from settlement data
+          await storage.updateOrderWithPaymentData(payment.subOrderNo, {
+            paymentDate: payment.settlementDate,
+            paymentStatus: paymentStatus
+          });
+        } catch (error) {
+          console.error(`Error updating order ${payment.subOrderNo} with payment data:`, error);
+        }
+      }
+    }
+    
+    console.log(`Successfully updated orders with payment data`);
+  } catch (error) {
+    console.error('Error in updateOrdersWithPaymentData:', error);
+  }
+}
+
 // Auth middleware
 async function authenticateUser(req: Request, res: Response, next: any) {
   try {
@@ -483,11 +520,20 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
         console.log(`Processed ${recordsProcessed} orders dynamically, extracted ${productsDynamic.length} products`);
       }
 
-      // Also process using legacy method for backward compatibility
-      const legacyResult = await FileProcessor.processOrdersCSV(buffer);
-      if (legacyResult.orders) {
-        await storage.bulkCreateOrders(legacyResult.orders);
-        await FileProcessor.extractProductsFromOrders(legacyResult.orders, gstPercent || '18');
+      // Process orders through legacy method to populate the main orders table with payment data
+      // Only run this if dynamic processing succeeded to avoid conflicts
+      if (recordsProcessed > 0) {
+        const legacyResult = await FileProcessor.processOrdersCSV(buffer);
+        if (legacyResult.orders) {
+          try {
+            // Use upsert logic to handle duplicates gracefully
+            await storage.bulkUpsertOrders(legacyResult.orders);
+            await FileProcessor.extractProductsFromOrders(legacyResult.orders, gstPercent || '18');
+            console.log(`Processed ${legacyResult.orders.length} orders with payment data`);
+          } catch (error) {
+            console.error('Legacy order processing error (non-blocking):', error);
+          }
+        }
       }
 
       await storage.updateUploadStatus(uploadId, 'processed', recordsProcessed, dynamicResult.errors);
@@ -497,6 +543,10 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
       result = await FileProcessor.processPaymentsZIP(buffer);
       if (result.payments) {
         await storage.bulkCreatePayments(result.payments);
+        
+        // CRITICAL: Update orders with payment data after processing payments
+        await updateOrdersWithPaymentData(result.payments);
+        
         await storage.updateUploadStatus(uploadId, 'processed', result.payments.length, result.errors);
         
         // Trigger real-time calculation update for payments
@@ -508,6 +558,10 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
         const fallbackResult = await FileProcessor.processPaymentsXLSX(buffer);
         if (fallbackResult.payments) {
           await storage.bulkCreatePayments(fallbackResult.payments);
+          
+          // CRITICAL: Update orders with payment data after processing payments
+          await updateOrdersWithPaymentData(fallbackResult.payments);
+          
           await storage.updateUploadStatus(uploadId, 'processed', fallbackResult.payments.length, [...(result?.errors || []), ...(fallbackResult.errors || [])]);
           await storage.recalculateAllMetrics(uploadId);
           console.log(`Processed ${fallbackResult.payments.length} payments from direct XLSX`);

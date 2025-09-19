@@ -8,6 +8,8 @@ import {
   type InsertOrderDynamic, type InsertProductDynamic,
   type FileStructure, type ColumnMetadata 
 } from '@shared/schema';
+import { CSVProcessor } from './csvProcessor';
+import { ZIPProcessor } from './zipProcessor';
 
 export interface ProcessedFile {
   orders?: InsertOrder[];
@@ -133,56 +135,67 @@ export class FileProcessor {
     return defaultGst;
   }
 
-  // Extract XLSX files from ZIP archive
-  static async extractXLSXFromZip(buffer: Buffer): Promise<{ xlsxBuffer: Buffer; filename: string } | null> {
+  // Enhanced method to extract files from ZIP archive (XLSX, CSV, etc.)
+  static async extractFilesFromZip(buffer: Buffer): Promise<{ files: Array<{ buffer: Buffer; filename: string; type: string }> } | null> {
     try {
       const zip = new AdmZip(buffer);
       const zipEntries = zip.getEntries();
+      const files: Array<{ buffer: Buffer; filename: string; type: string }> = [];
 
-      // Find the first XLSX file in the ZIP
-      const xlsxEntry = zipEntries.find((entry: any) => 
-        entry.entryName.toLowerCase().endsWith('.xlsx') && !entry.isDirectory
-      );
+      // Extract all relevant files (XLSX, CSV, etc.)
+      zipEntries.forEach((entry: any) => {
+        if (!entry.isDirectory) {
+          const filename = entry.entryName.toLowerCase();
+          let type = 'unknown';
+          
+          if (filename.endsWith('.xlsx')) {
+            type = 'xlsx';
+          } else if (filename.endsWith('.csv')) {
+            type = 'csv';
+          } else if (filename.endsWith('.xls')) {
+            type = 'xls';
+          }
 
-      if (xlsxEntry) {
-        const xlsxBuffer = xlsxEntry.getData();
-        return {
-          xlsxBuffer,
-          filename: xlsxEntry.entryName
-        };
-      }
+          if (type !== 'unknown') {
+            const buffer = entry.getData();
+            files.push({
+              buffer,
+              filename: entry.entryName,
+              type
+            });
+          }
+        }
+      });
 
-      return null;
+      return { files };
     } catch (error) {
-      console.error('Error extracting XLSX from ZIP:', error);
+      console.error('Error extracting files from ZIP:', error);
       return null;
     }
   }
 
-  // Process payments from ZIP file containing XLSX
-  static async processPaymentsZIP(buffer: Buffer): Promise<ProcessedFile> {
-    const errors: string[] = [];
-
-    try {
-      // Extract XLSX from ZIP
-      const extracted = await FileProcessor.extractXLSXFromZip(buffer);
-      
-      if (!extracted) {
-        return { 
-          payments: [], 
-          errors: ['No XLSX file found in ZIP archive'] 
+  // Legacy method for backward compatibility
+  static async extractXLSXFromZip(buffer: Buffer): Promise<{ xlsxBuffer: Buffer; filename: string } | null> {
+    const result = await FileProcessor.extractFilesFromZip(buffer);
+    if (result && result.files.length > 0) {
+      const xlsxFile = result.files.find(f => f.type === 'xlsx');
+      if (xlsxFile) {
+        return {
+          xlsxBuffer: xlsxFile.buffer,
+          filename: xlsxFile.filename
         };
       }
-
-      console.log(`Extracted XLSX file: ${extracted.filename}`);
-
-      // Process the extracted XLSX file
-      return await FileProcessor.processPaymentsXLSX(extracted.xlsxBuffer);
-      
-    } catch (error) {
-      errors.push(`ZIP processing error: ${error}`);
-      return { payments: [], errors };
     }
+    return null;
+  }
+
+  // Use the dedicated ZIP processor for enhanced payment processing
+  static async processPaymentsZIP(buffer: Buffer): Promise<ProcessedFile> {
+    const result = await ZIPProcessor.processPaymentZIP(buffer);
+    return {
+      payments: result.payments,
+      errors: result.errors
+    };
   }
 
   // Enhanced method that extracts dynamic structure and processes data
@@ -241,55 +254,13 @@ export class FileProcessor {
     });
   }
 
-  // Legacy method for backward compatibility
+  // Use the dedicated CSV processor for enhanced order processing
   static async processOrdersCSV(buffer: Buffer): Promise<ProcessedFile> {
-    const orders: InsertOrder[] = [];
-    const errors: string[] = [];
-
-    return new Promise((resolve) => {
-      const stream = Readable.from(buffer);
-      stream
-        .pipe(csv())
-        .on('data', (row: any) => {
-          try {
-            const order: InsertOrder = {
-              subOrderNo: row['Sub Order No']?.trim(),
-              orderDate: new Date(row['Order Date']?.trim()),
-              customerState: row['Customer State']?.trim(),
-              productName: row['Product Name']?.trim(),
-              sku: row['SKU']?.trim(),
-              size: row['Size']?.trim() || 'Free Size',
-              quantity: parseInt(row['Quantity']) || 1,
-              listedPrice: row['Supplier Listed Price (Incl. GST + Commission)']?.replace('₹', '') || '0',
-              discountedPrice: row['Supplier Discounted Price (Incl GST and Commision)']?.replace('₹', '') || '0',
-              packetId: row['Packet Id']?.trim(),
-              reasonForCredit: row['Reason for Credit Entry']?.trim(),
-            };
-
-            // Store additional product information if available in CSV
-            if (row['GST Percent'] || row['GST %'] || row['Tax Rate']) {
-              (order as any).gstPercent = row['GST Percent'] || row['GST %'] || row['Tax Rate'];
-            }
-
-            // Validation
-            if (!order.subOrderNo || !order.productName || !order.sku) {
-              errors.push(`Invalid order data at row: ${JSON.stringify(row)}`);
-              return;
-            }
-
-            orders.push(order);
-          } catch (error) {
-            errors.push(`Error processing row: ${error}`);
-          }
-        })
-        .on('end', () => {
-          resolve({ orders, errors });
-        })
-        .on('error', (error: any) => {
-          errors.push(`CSV parsing error: ${error}`);
-          resolve({ orders, errors });
-        });
-    });
+    const result = await CSVProcessor.processOrdersCSV(buffer);
+    return {
+      orders: result.orders,
+      errors: result.errors
+    };
   }
 
   static async processPaymentsXLSX(buffer: Buffer): Promise<ProcessedFile> {
@@ -583,6 +554,42 @@ export class FileProcessor {
     }
     
     return trimmed;
+  }
+
+  // Helper method to map order status to payment status
+  static mapPaymentStatus(reasonForCredit: string): string {
+    if (!reasonForCredit) return 'PENDING';
+    
+    const status = reasonForCredit.toUpperCase();
+    switch (status) {
+      case 'DELIVERED':
+        return 'PAID';
+      case 'RTO_COMPLETE':
+      case 'RTO COMPLETE':
+        return 'REFUNDED';
+      case 'CANCELLED':
+      case 'CANCELED':
+        return 'CANCELLED';
+      case 'RTO_LOCKED':
+      case 'RTO LOCKED':
+        return 'PROCESSING';
+      case 'SHIPPED':
+      case 'OUT_FOR_DELIVERY':
+      case 'OUT FOR DELIVERY':
+        return 'PROCESSING';
+      case 'LOST':
+        return 'LOST';
+      default:
+        return 'PENDING';
+    }
+  }
+
+  // Helper method to check if payment is completed
+  static isPaymentCompleted(reasonForCredit: string): boolean {
+    if (!reasonForCredit) return false;
+    
+    const status = reasonForCredit.toUpperCase();
+    return ['DELIVERED', 'RTO_COMPLETE', 'RTO COMPLETE'].includes(status);
   }
 
   static generateColumnDescription(columnName: string, type: string): string {
