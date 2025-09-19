@@ -190,11 +190,16 @@ export class FileProcessor {
   }
 
   // Use the dedicated ZIP processor for enhanced payment processing
-  static async processPaymentsZIP(buffer: Buffer): Promise<ProcessedFile> {
+  static async processPaymentsZIP(buffer: Buffer): Promise<ProcessedFile & {
+    productGstData?: Array<{ sku: string; gstPercent: number; productName: string; }>;
+    orderStatusData?: Array<{ subOrderNo: string; orderStatus: string; }>;
+  }> {
     const result = await ZIPProcessor.processPaymentZIP(buffer);
     return {
       payments: result.payments,
-      errors: result.errors
+      errors: result.errors,
+      productGstData: result.productGstData,
+      orderStatusData: result.orderStatusData
     };
   }
 
@@ -255,11 +260,14 @@ export class FileProcessor {
   }
 
   // Use the dedicated CSV processor for enhanced order processing
-  static async processOrdersCSV(buffer: Buffer): Promise<ProcessedFile> {
+  static async processOrdersCSV(buffer: Buffer): Promise<ProcessedFile & {
+    productMetadata?: Array<{ sku: string; gstPercent?: number; costPrice?: number; productName: string; }>;
+  }> {
     const result = await CSVProcessor.processOrdersCSV(buffer);
     return {
       orders: result.orders,
-      errors: result.errors
+      errors: result.errors,
+      productMetadata: result.productMetadata
     };
   }
 
@@ -639,26 +647,25 @@ export class FileProcessor {
       uniqueProducts.get(order.sku)!.totalOrders += 1;
     });
 
-    // Bulk create products that don't exist
+    // Handle products with unique requirement and proper order count increments
     const productList = Array.from(uniqueProducts.values());
     const existingProducts = await storage.getAllProducts();
-    const existingSkus = new Set(existingProducts.map(p => p.sku));
+    const existingSkusMap = new Map(existingProducts.map(p => [p.sku, p]));
 
-    const newProducts = productList.filter(p => !existingSkus.has(p.sku));
-    if (newProducts.length > 0) {
-      await storage.bulkCreateProducts(newProducts);
-    }
-
-    // Update order counts for existing products
-    for (const product of productList) {
-      if (existingSkus.has(product.sku)) {
-        const existing = existingProducts.find(p => p.sku === product.sku);
-        if (existing) {
-          await storage.updateProduct(product.sku, {
-            totalOrders: (Number(existing.totalOrders) || 0) + product.totalOrders
-          });
-        }
-      }
+    // Prepare products for upsert with proper totalOrders handling
+    const productsToUpsert = productList.map(product => {
+      const existing = existingSkusMap.get(product.sku);
+      return {
+        ...product,
+        totalOrders: existing 
+          ? (Number(existing.totalOrders) || 0) + product.totalOrders  // Increment existing count
+          : product.totalOrders  // New product, use current count
+      };
+    });
+    
+    if (productsToUpsert.length > 0) {
+      await storage.bulkUpsertProducts(productsToUpsert);
+      console.log(`Upserted ${productsToUpsert.length} products with incremental order counts (unique product requirement)`);
     }
   }
 }

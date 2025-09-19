@@ -284,10 +284,16 @@ export default function Orders() {
                       const packagingCost = parseFloat(order.packagingCost || '0');
                       const quantity = parseInt(order.quantity || '1');
                       
-                      // Parse settlement amount only if it exists (null/undefined should remain undefined)
-                      const settlementAmount = order.settlementAmount !== null && order.settlementAmount !== undefined 
-                        ? parseFloat(order.settlementAmount) 
-                        : undefined;
+                      // Enhanced settlement amount parsing with better validation
+                      const settlementAmount = (() => {
+                        if (order.settlementAmount === null || order.settlementAmount === undefined) {
+                          return undefined;
+                        }
+                        const parsed = typeof order.settlementAmount === 'string' 
+                          ? parseFloat(order.settlementAmount)
+                          : Number(order.settlementAmount);
+                        return isNaN(parsed) ? undefined : parsed;
+                      })();
                       
                       // Use settlement amount from payment file (including 0 and negative values)
                       const profitLoss = calculateGrossProfitLoss(
@@ -312,15 +318,23 @@ export default function Orders() {
                           <td className="px-4 py-3 text-sm">{formatCurrency(order.listedPrice)}</td>
                           <td className="px-4 py-3 text-sm font-medium">
                             {typeof settlementAmount === 'number' && isFinite(settlementAmount) ? (
-                              <span className={`font-semibold ${
-                                settlementAmount > 0 ? "text-green-600" : 
-                                settlementAmount === 0 ? "text-yellow-600" : 
-                                "text-red-600"
-                              }`}>
-                                {formatCurrency(settlementAmount)}
-                              </span>
+                              <div className="flex flex-col">
+                                <span className={`font-semibold ${
+                                  settlementAmount > 0 ? "text-green-600" : 
+                                  settlementAmount === 0 ? "text-yellow-600" : 
+                                  "text-red-600"
+                                }`}>
+                                  {formatCurrency(settlementAmount)}
+                                </span>
+                                {order.hasPayment && (
+                                  <span className="text-xs text-green-500">✓ Settled</span>
+                                )}
+                              </div>
                             ) : (
-                              <span className="text-gray-500">-</span>
+                              <div className="flex flex-col">
+                                <span className="text-gray-500">-</span>
+                                <span className="text-xs text-orange-500">No payment data</span>
+                              </div>
                             )}
                           </td>
                           <td className="px-4 py-3 text-sm">
@@ -333,11 +347,19 @@ export default function Orders() {
                           </td>
                           <td className="px-4 py-3 text-sm">
                             {profitLoss.amount !== null ? (
-                              <span className={`font-medium ${profitLoss.isProfit ? 'text-green-600' : 'text-red-600'}`}>
-                                {profitLoss.formatted}
-                              </span>
+                              <div className="flex flex-col">
+                                <span className={`font-medium ${profitLoss.isProfit ? 'text-green-600' : 'text-red-600'}`}>
+                                  {profitLoss.formatted}
+                                </span>
+                                {profitLoss.note && (
+                                  <span className="text-xs text-gray-400">{profitLoss.note}</span>
+                                )}
+                              </div>
                             ) : (
-                              <span className="text-gray-500">-</span>
+                              <div className="flex flex-col">
+                                <span className="text-gray-500">-</span>
+                                <span className="text-xs text-orange-500">Incomplete data</span>
+                              </div>
                             )}
                           </td>
                           <td className="px-4 py-3">

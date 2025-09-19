@@ -6,6 +6,7 @@ export interface CSVProcessResult {
   orders: InsertOrder[];
   errors: string[];
   processedCount: number;
+  productMetadata?: Array<{ sku: string; gstPercent?: number; costPrice?: number; productName: string; }>;
 }
 
 export class CSVProcessor {
@@ -69,10 +70,23 @@ export class CSVProcessor {
            reason.includes('settlement');
   }
 
+  // Enhanced field mapping for different CSV formats
+  static getFieldValue(row: any, fieldAliases: string[]): string {
+    for (const alias of fieldAliases) {
+      if (row[alias] !== undefined && row[alias] !== null) {
+        return String(row[alias]).trim();
+      }
+    }
+    return '';
+  }
+
   static async processOrdersCSV(buffer: Buffer): Promise<CSVProcessResult> {
     const orders: InsertOrder[] = [];
     const errors: string[] = [];
     let processedCount = 0;
+    let headers: string[] = [];
+    let headersSaved = false;
+    const productMetadata = new Map<string, { sku: string; gstPercent?: number; costPrice?: number; productName: string; }>();
 
     return new Promise((resolve) => {
       const stream = Readable.from(buffer);
@@ -83,16 +97,58 @@ export class CSVProcessor {
           try {
             processedCount++;
             
-            // Extract and clean order data
-            const subOrderNo = row['Sub Order No']?.trim() || row['Sub Order ID']?.trim() || row['subOrderNo']?.trim();
-            const orderDate = row['Order Date']?.trim() || row['orderDate']?.trim();
-            const productName = row['Product Name']?.trim() || row['productName']?.trim();
-            const sku = row['SKU']?.trim() || row['sku']?.trim();
-            const reasonForCredit = row['Reason for Credit Entry']?.trim() || row['reasonForCredit']?.trim();
+            // Save headers on first row for debugging
+            if (!headersSaved) {
+              headers = Object.keys(row);
+              headersSaved = true;
+              console.log('CSV Headers detected:', headers.slice(0, 10)); // Log first 10 headers
+            }
+            
+            // Enhanced field extraction with multiple alias support
+            const subOrderNo = this.getFieldValue(row, [
+              'Sub Order No', 'Sub Order ID', 'subOrderNo', 'sub_order_no', 
+              'SubOrderNo', 'SUB_ORDER_NO', 'Sub-Order-No'
+            ]);
+            
+            const orderDate = this.getFieldValue(row, [
+              'Order Date', 'orderDate', 'order_date', 'OrderDate', 
+              'ORDER_DATE', 'Date', 'Created Date'
+            ]);
+            
+            const productName = this.getFieldValue(row, [
+              'Product Name', 'productName', 'product_name', 'ProductName', 
+              'PRODUCT_NAME', 'Title', 'Product Title', 'Item Name'
+            ]);
+            
+            const sku = this.getFieldValue(row, [
+              'SKU', 'sku', 'SKU ID', 'Product SKU', 'ItemSKU', 
+              'PRODUCT_SKU', 'Product Code', 'Item Code'
+            ]);
+            
+            const reasonForCredit = this.getFieldValue(row, [
+              'Reason for Credit Entry', 'reasonForCredit', 'reason_for_credit', 
+              'Status', 'Order Status', 'Payment Status', 'Credit Reason'
+            ]);
 
-            // Validate required fields
-            if (!subOrderNo || !productName || !sku) {
-              errors.push(`Row ${processedCount}: Missing required fields (Sub Order No, Product Name, or SKU)`);
+            // Extract additional fields for enhanced mapping (GST %, Cost Price)
+            const gstPercent = this.getFieldValue(row, [
+              'GST %', 'GST Percent', 'Product GST %', 'Tax %', 'Tax Percent',
+              'GST', 'gst_percent', 'gstPercent', 'Product Tax %'
+            ]);
+
+            const costPrice = this.getFieldValue(row, [
+              'Cost Price', 'costPrice', 'cost_price', 'Product Cost',
+              'Purchase Price', 'Base Cost', 'Manufacturing Cost', 'Item Cost'
+            ]);
+
+            // Enhanced validation with detailed error reporting
+            const missingFields: string[] = [];
+            if (!subOrderNo) missingFields.push('Sub Order No');
+            if (!productName) missingFields.push('Product Name');
+            if (!sku) missingFields.push('SKU');
+            
+            if (missingFields.length > 0) {
+              errors.push(`Row ${processedCount}: Missing required fields: ${missingFields.join(', ')}. Available columns: ${headers.slice(0, 5).join(', ')}...`);
               return;
             }
 
@@ -100,25 +156,40 @@ export class CSVProcessor {
             const order: InsertOrder = {
               subOrderNo,
               orderDate: this.parseDate(orderDate),
-              customerState: row['Customer State']?.trim() || row['customerState']?.trim() || '',
+              customerState: this.getFieldValue(row, [
+                'Customer State', 'customerState', 'customer_state', 
+                'State', 'Buyer State', 'Delivery State'
+              ]),
               productName,
               sku,
-              size: row['Size']?.trim() || row['size']?.trim() || 'Free Size',
-              quantity: parseInt(row['Quantity'] || row['quantity'] || '1') || 1,
+              size: this.getFieldValue(row, [
+                'Size', 'size', 'Product Size', 'Variant', 
+                'SIZE', 'Item Size'
+              ]) || 'Free Size',
+              quantity: parseInt(this.getFieldValue(row, [
+                'Quantity', 'quantity', 'qty', 'Qty', 'QTY', 
+                'Item Quantity', 'Order Quantity'
+              ]) || '1') || 1,
               listedPrice: this.sanitizeNumericField(
-                row['Supplier Listed Price (Incl. GST + Commission)'] || 
-                row['Listed Price'] || 
-                row['listedPrice'] ||
-                row['Supplier Listed Price'] ||
-                row['Sale Amount']
+                this.getFieldValue(row, [
+                  'Supplier Listed Price (Incl. GST + Commission)', 
+                  'Listed Price', 'listedPrice', 'Sale Price', 
+                  'Supplier Listed Price', 'Sale Amount', 'Price', 
+                  'Listed Price (Incl. GST)', 'Original Price'
+                ])
               ).toString(),
               discountedPrice: this.sanitizeNumericField(
-                row['Supplier Discounted Price (Incl GST and Commision)'] || 
-                row['Discounted Price'] ||
-                row['discountedPrice'] ||
-                row['Final Sale Amount']
+                this.getFieldValue(row, [
+                  'Supplier Discounted Price (Incl GST and Commision)', 
+                  'Discounted Price', 'discountedPrice', 'Final Sale Amount',
+                  'Final Price', 'Net Price', 'Selling Price', 
+                  'Discounted Sale Price', 'Final Sale Price'
+                ])
               ).toString(),
-              packetId: row['Packet Id']?.trim() || row['packetId']?.trim() || '',
+              packetId: this.getFieldValue(row, [
+                'Packet Id', 'packetId', 'packet_id', 'PacketID', 
+                'PACKET_ID', 'Packet No', 'Package ID'
+              ]),
               reasonForCredit: reasonForCredit || '',
               
               // Enhanced payment data extraction from CSV
@@ -127,14 +198,39 @@ export class CSVProcessor {
             };
 
             orders.push(order);
+
+            // Collect product metadata (GST%, Cost Price) if available
+            if (sku && productName) {
+              const metadata: { sku: string; gstPercent?: number; costPrice?: number; productName: string; } = {
+                sku,
+                productName
+              };
+              
+              if (gstPercent) {
+                const gstValue = this.sanitizeNumericField(gstPercent);
+                if (gstValue > 0) {
+                  metadata.gstPercent = gstValue;
+                }
+              }
+              
+              if (costPrice) {
+                const costValue = this.sanitizeNumericField(costPrice);
+                if (costValue > 0) {
+                  metadata.costPrice = costValue;
+                }
+              }
+              
+              productMetadata.set(sku, metadata);
+            }
             
           } catch (error) {
             errors.push(`Row ${processedCount}: Processing error - ${error}`);
           }
         })
         .on('end', () => {
-          console.log(`CSV Processing complete: ${orders.length} orders processed, ${errors.length} errors`);
-          resolve({ orders, errors, processedCount });
+          const productMetadataArray = Array.from(productMetadata.values());
+          console.log(`CSV Processing complete: ${orders.length} orders processed, ${productMetadataArray.length} product metadata records, ${errors.length} errors`);
+          resolve({ orders, errors, processedCount, productMetadata: productMetadataArray });
         })
         .on('error', (error: any) => {
           errors.push(`CSV parsing error: ${error}`);

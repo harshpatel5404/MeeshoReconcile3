@@ -269,7 +269,9 @@ export default function Products() {
                           <td className="px-4 py-3 text-sm">
                             <div className="max-w-xs">
                               <span className="text-sm" title={product.title}>
-                                {product.title ? (product.title.length > 30 ? `${product.title.substring(0, 30)}...` : product.title) : '-'}
+                                {product.title ? (product.title.length > 30 ? `${product.title.substring(0, 30)}...` : product.title) : (
+                                  <span className="text-gray-400 italic">No product name</span>
+                                )}
                               </span>
                             </div>
                           </td>
@@ -302,13 +304,26 @@ export default function Products() {
                           </td>
                           <td className="px-4 py-3 text-sm text-center">
                             <div className="flex flex-col">
-                              <span className="font-medium text-blue-600">{product.totalOrders || 0}</span>
-                              <span className="text-xs text-muted-foreground">orders</span>
+                              <span className={`font-medium ${
+                                (product.totalOrders || 0) > 0 ? 'text-blue-600' : 'text-gray-400'
+                              }`}>
+                                {product.totalOrders || 0}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {(product.totalOrders || 0) === 1 ? 'order' : 'orders'}
+                              </span>
                             </div>
                           </td>
                           <td className="px-4 py-3 text-sm">
                             <div className="flex flex-col">
-                              <span className="font-bold text-green-600">₹{finalPrice.toFixed(2)}</span>
+                              <span className={`font-bold ${
+                                finalPrice > 0 ? 'text-green-600' : 'text-gray-400'
+                              }`}>
+                                ₹{finalPrice.toFixed(2)}
+                              </span>
+                              {finalPrice === 0 && (
+                                <span className="text-xs text-orange-500">Set costs above</span>
+                              )}
                             </div>
                           </td>
                         </tr>

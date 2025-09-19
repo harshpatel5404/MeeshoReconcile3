@@ -45,6 +45,8 @@ export interface IStorage {
   createProduct(product: InsertProduct): Promise<Product>;
   updateProduct(sku: string, product: Partial<InsertProduct>): Promise<Product | undefined>;
   bulkCreateProducts(products: InsertProduct[]): Promise<Product[]>;
+  bulkUpsertProducts(products: InsertProduct[]): Promise<Product[]>;
+  updateProductGst(sku: string, gstPercent: number, productName?: string): Promise<Product | undefined>;
 
   // Dynamic Products
   getAllProductsDynamic(): Promise<ProductDynamic[]>;
@@ -62,6 +64,7 @@ export interface IStorage {
   bulkUpsertOrders(orders: InsertOrder[]): Promise<Order[]>;
   updateOrderWithPaymentData(subOrderNo: string, paymentData: { paymentDate: Date; paymentStatus: string }): Promise<Order | undefined>;
   batchUpdateOrdersWithPaymentData(paymentData: Array<{ subOrderNo: string; paymentDate: Date; paymentStatus: string }>): Promise<void>;
+  updateOrderStatus(subOrderNo: string, orderStatus: string): Promise<Order | undefined>;
 
   // Dynamic Orders
   getAllOrdersDynamic(): Promise<OrderDynamic[]>;
@@ -209,6 +212,57 @@ export class DatabaseStorage implements IStorage {
     } catch (error) {
       console.error('Error during bulk product creation:', error);
       throw new Error(`Failed to create products: ${error}`);
+    }
+  }
+
+  async bulkUpsertProducts(productList: InsertProduct[]): Promise<Product[]> {
+    if (productList.length === 0) return [];
+    
+    try {
+      // Use ON CONFLICT to handle duplicates with upsert logic (for unique products)
+      return await db
+        .insert(products)
+        .values(productList)
+        .onConflictDoUpdate({
+          target: products.sku,
+          set: {
+            title: sql.raw('excluded.title'),
+            costPrice: sql.raw('excluded.cost_price'),
+            packagingCost: sql.raw('excluded.packaging_cost'),
+            finalPrice: sql.raw('excluded.final_price'),
+            gstPercent: sql.raw('excluded.gst_percent'),
+            totalOrders: sql.raw('excluded.total_orders'),
+            updatedAt: sql.raw('excluded.updated_at')
+          }
+        })
+        .returning();
+    } catch (error) {
+      console.error('Error during bulk product upsert:', error);
+      throw new Error(`Failed to upsert products: ${error}`);
+    }
+  }
+
+  async updateProductGst(sku: string, gstPercent: number, productName?: string): Promise<Product | undefined> {
+    try {
+      const updateData: any = { 
+        gstPercent: gstPercent.toString(),
+        updatedAt: new Date()
+      };
+      
+      // Update product name if provided
+      if (productName) {
+        updateData.title = productName;
+      }
+      
+      const result = await db
+        .update(products)
+        .set(updateData)
+        .where(eq(products.sku, sku))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error(`Error updating GST for product ${sku}:`, error);
+      throw error;
     }
   }
 
@@ -362,6 +416,22 @@ export class DatabaseStorage implements IStorage {
       console.log(`Batch updated ${paymentDataList.length} orders with payment data`);
     } catch (error) {
       console.error('Error in batchUpdateOrdersWithPaymentData:', error);
+      throw error;
+    }
+  }
+
+  async updateOrderStatus(subOrderNo: string, orderStatus: string): Promise<Order | undefined> {
+    try {
+      const result = await db
+        .update(orders)
+        .set({
+          reasonForCredit: orderStatus, // Store order status in reasonForCredit field
+        })
+        .where(eq(orders.subOrderNo, subOrderNo))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error(`Error updating order status for ${subOrderNo}:`, error);
       throw error;
     }
   }
@@ -610,13 +680,14 @@ export class DatabaseStorage implements IStorage {
 
     return statusData.map(item => {
       // Normalize status for consistent mapping (handle case variations)
-      const normalizedStatus = item.status.toLowerCase().trim();
+      const statusValue = item.status || 'Unknown';
+      const normalizedStatus = statusValue.toLowerCase().trim();
       const mappingKey = Object.keys(statusMapping).find(key => 
         key.toLowerCase() === normalizedStatus
-      ) || item.status;
+      ) || statusValue;
       
       return {
-        name: statusMapping[mappingKey]?.name || item.status,
+        name: statusMapping[mappingKey]?.name || statusValue,
         value: item.count,
         color: statusMapping[mappingKey]?.color || 'hsl(215 28% 52%)'
       };

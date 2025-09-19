@@ -528,7 +528,27 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
           try {
             // Use upsert logic to handle duplicates gracefully
             await storage.bulkUpsertOrders(legacyResult.orders);
+            
+            // Extract products with metadata from CSV if available
             await FileProcessor.extractProductsFromOrders(legacyResult.orders, gstPercent || '18');
+            
+            // Apply product metadata from CSV (GST%, Cost Price) if available
+            if (legacyResult.productMetadata && legacyResult.productMetadata.length > 0) {
+              console.log(`Applying ${legacyResult.productMetadata.length} product metadata records from CSV`);
+              for (const metadata of legacyResult.productMetadata) {
+                try {
+                  if (metadata.gstPercent !== undefined) {
+                    await storage.updateProductGst(metadata.sku, metadata.gstPercent, metadata.productName);
+                  }
+                  if (metadata.costPrice !== undefined) {
+                    await storage.updateProduct(metadata.sku, { costPrice: metadata.costPrice.toString() });
+                  }
+                } catch (error) {
+                  console.warn(`Failed to update metadata for product ${metadata.sku}:`, error);
+                }
+              }
+            }
+            
             console.log(`Processed ${legacyResult.orders.length} orders with payment data`);
           } catch (error) {
             console.error('Legacy order processing error (non-blocking):', error);
@@ -546,6 +566,30 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
         
         // CRITICAL: Update orders with payment data after processing payments
         await updateOrdersWithPaymentData(result.payments);
+        
+        // Process additional GST data extracted from ZIP files
+        if (result.productGstData && result.productGstData.length > 0) {
+          console.log(`Updating ${result.productGstData.length} products with GST data from ZIP`);
+          for (const gstData of result.productGstData) {
+            try {
+              await storage.updateProductGst(gstData.sku, gstData.gstPercent, gstData.productName);
+            } catch (error) {
+              console.warn(`Failed to update GST for product ${gstData.sku}:`, error);
+            }
+          }
+        }
+        
+        // Process additional order status data extracted from ZIP files
+        if (result.orderStatusData && result.orderStatusData.length > 0) {
+          console.log(`Updating ${result.orderStatusData.length} orders with status data from ZIP`);
+          for (const statusData of result.orderStatusData) {
+            try {
+              await storage.updateOrderStatus(statusData.subOrderNo, statusData.orderStatus);
+            } catch (error) {
+              console.warn(`Failed to update status for order ${statusData.subOrderNo}:`, error);
+            }
+          }
+        }
         
         await storage.updateUploadStatus(uploadId, 'processed', result.payments.length, result.errors);
         

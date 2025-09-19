@@ -95,10 +95,15 @@ export class ZIPProcessor {
     }
   }
 
-  static async processPaymentXLSX(buffer: Buffer, filename: string): Promise<ZIPProcessResult> {
+  static async processPaymentXLSX(buffer: Buffer, filename: string): Promise<ZIPProcessResult & { 
+    productGstData?: Array<{ sku: string; gstPercent: number; productName: string; }>;
+    orderStatusData?: Array<{ subOrderNo: string; orderStatus: string; }>;
+  }> {
     const payments: InsertPayment[] = [];
     const errors: string[] = [];
     let processedCount = 0;
+    const productGstData: Array<{ sku: string; gstPercent: number; productName: string; }> = [];
+    const orderStatusData: Array<{ subOrderNo: string; orderStatus: string; }> = [];
 
     try {
       const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
@@ -144,33 +149,106 @@ export class ZIPProcessor {
       
       console.log(`Found headers at row ${headerRowIndex} in ${filename}:`, headers.slice(0, 10));
 
-      // More precise column detection for key fields
+      // Enhanced column detection with multiple aliases
+      const subOrderAliases = [
+        'Sub Order No', 'SubOrderNo', 'sub_order_no', 'Sub Order ID',
+        'Sub-Order-No', 'SUB_ORDER_NO', 'Order No', 'OrderNo'
+      ];
       const subOrderIndex = headers.findIndex(h => 
-        h && (h === 'Sub Order No' || h.toLowerCase().includes('sub order'))
+        h && subOrderAliases.some(alias => 
+          h === alias || h.toLowerCase().includes(alias.toLowerCase())
+        )
       );
       
-      // More specific settlement amount detection
+      // Enhanced settlement amount detection
+      const settlementAliases = [
+        'Final Settlement Amount', 'Settlement Amount', 'Net Settlement',
+        'Final Settlement', 'Settlement', 'Net Amount', 'Payout Amount',
+        'Final Amount', 'Amount Settled', 'Total Settlement'
+      ];
       const settlementIndex = headers.findIndex(h => 
-        h && (h === 'Final Settlement Amount' || 
-              h === 'Settlement Amount' ||
-              h.toLowerCase().includes('final settlement') ||
-              h.toLowerCase().includes('settlement amount'))
+        h && settlementAliases.some(alias => 
+          h === alias || h.toLowerCase().includes(alias.toLowerCase())
+        )
       );
       
-      // More specific date detection  
+      // Enhanced date detection
+      const dateAliases = [
+        'Payment Date', 'Settlement Date', 'Payout Date', 'Transaction Date',
+        'Date', 'Settled Date', 'Payment Settlement Date', 'Processing Date',
+        'Order Date'
+      ];
       const dateIndex = headers.findIndex(h => 
-        h && (h === 'Payment Date' || 
-              h === 'Settlement Date' ||
-              h.toLowerCase().includes('payment date') ||
-              h.toLowerCase().includes('settlement date'))
+        h && dateAliases.some(alias => 
+          h === alias || h.toLowerCase().includes(alias.toLowerCase())
+        )
+      );
+
+      // GST percentage detection
+      const gstAliases = [
+        'Product GST %', 'GST %', 'GST Percent', 'GST', 'Tax %', 
+        'Tax Percent', 'Product Tax %', 'Gst %'
+      ];
+      const gstIndex = headers.findIndex(h => 
+        h && gstAliases.some(alias => 
+          h === alias || h.toLowerCase().includes(alias.toLowerCase())
+        )
+      );
+
+      // Product name detection (for GST mapping)
+      const productNameAliases = [
+        'Product Name', 'Item Name', 'Title', 'Product Title',
+        'Product', 'Item', 'Name'
+      ];
+      const productNameIndex = headers.findIndex(h => 
+        h && productNameAliases.some(alias => 
+          h === alias || h.toLowerCase().includes(alias.toLowerCase())
+        )
+      );
+
+      // SKU detection 
+      const skuAliases = [
+        'Supplier SKU', 'SKU', 'Product SKU', 'Item SKU', 
+        'Product Code', 'Item Code', 'sku'
+      ];
+      const skuIndex = headers.findIndex(h => 
+        h && skuAliases.some(alias => 
+          h === alias || h.toLowerCase().includes(alias.toLowerCase())
+        )
+      );
+
+      // Order status detection
+      const orderStatusAliases = [
+        'Live Order Status', 'Order Status', 'Status', 'Current Status',
+        'Order State', 'Delivery Status', 'Live Status'
+      ];
+      const orderStatusIndex = headers.findIndex(h => 
+        h && orderStatusAliases.some(alias => 
+          h === alias || h.toLowerCase().includes(alias.toLowerCase())
+        )
       );
 
       if (subOrderIndex === -1) {
-        errors.push(`${filename}: Could not find Sub Order No column`);
+        errors.push(`${filename}: Could not find Sub Order No column. Available headers: ${headers.slice(0, 10).join(', ')}`);
         return { payments, errors, processedCount };
       }
 
-      console.log(`Column indices: SubOrder=${subOrderIndex}, Settlement=${settlementIndex}, Date=${dateIndex}`);
+      // Log detected columns for debugging
+      console.log(`Column detection for ${filename}:`);
+      console.log(`- Sub Order No: "${headers[subOrderIndex]}" (index ${subOrderIndex})`);
+      console.log(`- Settlement Amount: ${settlementIndex >= 0 ? `"${headers[settlementIndex]}" (index ${settlementIndex})` : 'NOT FOUND'}`);
+      console.log(`- Date: ${dateIndex >= 0 ? `"${headers[dateIndex]}" (index ${dateIndex})` : 'NOT FOUND'}`);
+      console.log(`- GST %: ${gstIndex >= 0 ? `"${headers[gstIndex]}" (index ${gstIndex})` : 'NOT FOUND'}`);
+      console.log(`- Product Name: ${productNameIndex >= 0 ? `"${headers[productNameIndex]}" (index ${productNameIndex})` : 'NOT FOUND'}`);
+      console.log(`- SKU: ${skuIndex >= 0 ? `"${headers[skuIndex]}" (index ${skuIndex})` : 'NOT FOUND'}`);
+      console.log(`- Order Status: ${orderStatusIndex >= 0 ? `"${headers[orderStatusIndex]}" (index ${orderStatusIndex})` : 'NOT FOUND'}`);
+      
+      if (settlementIndex === -1) {
+        console.warn(`${filename}: Settlement amount column not found. Payment amounts will be set to 0.`);
+      }
+      if (dateIndex === -1) {
+        console.warn(`${filename}: Date column not found. Using current date as fallback.`);
+      }
 
       // Process data rows (starting after header row)
       for (let i = headerRowIndex + 1; i < rawData.length; i++) {
@@ -191,6 +269,35 @@ export class ZIPProcessor {
           const settlementDate = dateIndex !== -1 ? 
             this.parseDate(row[dateIndex]) : new Date();
 
+          // Extract GST percentage and product data
+          if (gstIndex !== -1 && skuIndex !== -1) {
+            const gstValue = row[gstIndex];
+            const skuValue = row[skuIndex]?.toString().trim();
+            const productNameValue = productNameIndex !== -1 ? row[productNameIndex]?.toString().trim() : '';
+            
+            if (skuValue && gstValue !== undefined && gstValue !== null) {
+              const gstPercent = this.sanitizeNumericField(gstValue);
+              if (gstPercent > 0) {
+                productGstData.push({
+                  sku: skuValue,
+                  gstPercent: gstPercent,
+                  productName: productNameValue || ''
+                });
+              }
+            }
+          }
+
+          // Extract order status data
+          if (orderStatusIndex !== -1) {
+            const orderStatusValue = row[orderStatusIndex]?.toString().trim();
+            if (orderStatusValue) {
+              orderStatusData.push({
+                subOrderNo: subOrderNo,
+                orderStatus: orderStatusValue
+              });
+            }
+          }
+
           const payment: InsertPayment = {
             subOrderNo,
             settlementAmount: settlementAmount.toString(),
@@ -208,14 +315,19 @@ export class ZIPProcessor {
       errors.push(`${filename}: XLSX processing error - ${error}`);
     }
 
-    console.log(`${filename}: Processed ${payments.length} payments, ${errors.length} errors`);
-    return { payments, errors, processedCount };
+    console.log(`${filename}: Processed ${payments.length} payments, ${productGstData.length} product GST records, ${orderStatusData.length} order status records, ${errors.length} errors`);
+    return { payments, errors, processedCount, productGstData, orderStatusData };
   }
 
-  static async processPaymentZIP(buffer: Buffer): Promise<ZIPProcessResult> {
+  static async processPaymentZIP(buffer: Buffer): Promise<ZIPProcessResult & { 
+    productGstData?: Array<{ sku: string; gstPercent: number; productName: string; }>;
+    orderStatusData?: Array<{ subOrderNo: string; orderStatus: string; }>;
+  }> {
     const allPayments: InsertPayment[] = [];
     const allErrors: string[] = [];
     let totalProcessed = 0;
+    const allProductGstData: Array<{ sku: string; gstPercent: number; productName: string; }> = [];
+    const allOrderStatusData: Array<{ subOrderNo: string; orderStatus: string; }> = [];
 
     try {
       const files = await this.extractFilesFromZip(buffer);
@@ -239,6 +351,14 @@ export class ZIPProcessor {
             allPayments.push(...result.payments);
             allErrors.push(...result.errors);
             totalProcessed += result.processedCount;
+            
+            // Collect additional data
+            if (result.productGstData) {
+              allProductGstData.push(...result.productGstData);
+            }
+            if (result.orderStatusData) {
+              allOrderStatusData.push(...result.orderStatusData);
+            }
           } 
           else if (file.type === 'csv') {
             console.log(`Processing CSV file: ${file.filename}`);
@@ -255,10 +375,14 @@ export class ZIPProcessor {
     }
 
     console.log(`ZIP processing complete: ${allPayments.length} payments processed, ${allErrors.length} errors`);
+    console.log(`Additional data extracted: ${allProductGstData.length} product GST records, ${allOrderStatusData.length} order status records`);
+    
     return { 
       payments: allPayments, 
       errors: allErrors, 
-      processedCount: totalProcessed 
+      processedCount: totalProcessed,
+      productGstData: allProductGstData,
+      orderStatusData: allOrderStatusData
     };
   }
 }
