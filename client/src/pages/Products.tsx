@@ -294,17 +294,11 @@ export default function Products() {
                             />
                           </td>
                           <td className="px-4 py-3 text-sm">
-                            <Input
-                              type="number"
-                              step="0.1"
-                              min="0"
-                              max="100"
-                              defaultValue={product.gstPercent ?? '5'}
-                              onBlur={(e) => handleProductUpdate(product.sku, 'gstPercent', e.target.value)}
-                              className="w-20"
-                              placeholder="5"
-                              data-testid={`input-gst-percent-${product.sku}`}
-                            />
+                            <div className="flex flex-col">
+                              <span className="font-medium text-slate-700 dark:text-slate-300 px-3 py-2 bg-muted/50 rounded border border-border w-20 text-center" data-testid={`text-gst-percent-${product.sku}`}>
+                                {product.gstPercent ?? '5'}%
+                              </span>
+                            </div>
                           </td>
                           <td className="px-4 py-3 text-sm text-center">
                             <div className="flex flex-col">
@@ -315,9 +309,6 @@ export default function Products() {
                           <td className="px-4 py-3 text-sm">
                             <div className="flex flex-col">
                               <span className="font-bold text-green-600">₹{finalPrice.toFixed(2)}</span>
-                              <span className="text-xs text-muted-foreground">
-                                Cost + Packaging
-                              </span>
                             </div>
                           </td>
                         </tr>

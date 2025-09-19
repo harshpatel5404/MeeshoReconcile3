@@ -46,6 +46,62 @@ export class FileProcessor {
     return '0';
   }
 
+  // Helper method to normalize column keys for fuzzy matching
+  static normalizeKey(key: string): string {
+    return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  // Helper method to find column value using fuzzy matching
+  static findColumnValue(row: Record<string, any>, synonyms: string[]): any {
+    for (const synonym of synonyms) {
+      const normalizedSynonym = this.normalizeKey(synonym);
+      for (const [key, value] of Object.entries(row)) {
+        if (this.normalizeKey(key) === normalizedSynonym) {
+          return value;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Helper method to calculate total GST from CGST/SGST or use IGST
+  static calculateTotalGst(row: Record<string, any>): string | null {
+    // First check for IGST (Interstate GST)
+    const igst = this.findColumnValue(row, ['IGST Rate', 'IGST %', 'IGST Percent', 'Interstate GST']);
+    if (igst) {
+      const sanitized = this.sanitizeGstField(igst);
+      console.log(`Found IGST: ${sanitized}%`);
+      return sanitized;
+    }
+
+    // Then check for CGST + SGST (Intrastate GST)
+    const cgst = this.findColumnValue(row, ['CGST Rate', 'CGST %', 'CGST Percent', 'Central GST']);
+    const sgst = this.findColumnValue(row, ['SGST Rate', 'SGST %', 'SGST Percent', 'State GST']);
+    
+    if (cgst && sgst) {
+      const cgstValue = parseFloat(this.sanitizeGstField(cgst, '0'));
+      const sgstValue = parseFloat(this.sanitizeGstField(sgst, '0'));
+      const totalGst = cgstValue + sgstValue;
+      console.log(`Found CGST (${cgstValue}%) + SGST (${sgstValue}%) = ${totalGst}%`);
+      return totalGst.toString();
+    }
+
+    // Fallback to general GST columns
+    const generalGst = this.findColumnValue(row, [
+      'Product GST %', 'Product GST', 'GST %', 'GST Percent',
+      'GST_Percent', 'Tax Rate', 'GST Rate', 'Product_GST',
+      'Item Tax Rate'
+    ]);
+    
+    if (generalGst) {
+      const sanitized = this.sanitizeGstField(generalGst);
+      console.log(`Found general GST: ${sanitized}%`);
+      return sanitized;
+    }
+
+    return null;
+  }
+
   // Helper method to sanitize GST fields with proper validation and fallback
   static sanitizeGstField(value: any, defaultGst: string = '5'): string {
     if (value == null || value === '') return defaultGst;
@@ -243,44 +299,103 @@ export class FileProcessor {
 
     try {
       const workbook = xlsx.read(buffer, { type: 'buffer' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const jsonData = xlsx.utils.sheet_to_json(worksheet);
+      
+      // Look for "Order Payments" sheet first, fallback to first sheet
+      let targetSheet = 'Order Payments';
+      if (!workbook.Sheets[targetSheet]) {
+        targetSheet = workbook.SheetNames[0];
+        console.log(`Order Payments sheet not found, using: ${targetSheet}`);
+      } else {
+        console.log('Processing Order Payments sheet');
+      }
+      
+      const worksheet = workbook.Sheets[targetSheet];
+      
+      // For Meesho files, read as array of arrays to handle header row properly
+      const rawData = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
+      
+      // Find the header row (usually row 1 in Meesho files)
+      let headerRowIndex = 0;
+      let headers: string[] = [];
+      
+      for (let i = 0; i < Math.min(5, rawData.length); i++) {
+        const row = rawData[i] as any[];
+        if (row && row.length > 10 && row[0] === 'Sub Order No') {
+          headerRowIndex = i;
+          headers = row;
+          break;
+        }
+      }
+      
+      if (headers.length === 0) {
+        console.error('Could not find header row with Sub Order No');
+        return { payments: [], errors: ['Invalid payment file format - header row not found'] };
+      }
+      
+      console.log(`Found headers at row ${headerRowIndex}:`, headers.slice(0, 10));
+      
+      // Find column indices for key fields
+      const subOrderIndex = headers.indexOf('Sub Order No');
+      const supplierSkuIndex = headers.indexOf('Supplier SKU');
+      const gstIndex = headers.indexOf('Product GST %');
+      const settlementDateIndex = headers.indexOf('Payment Date');
+      const settlementAmountIndex = headers.indexOf('Final Settlement Amount');
+      const orderValueIndex = headers.indexOf('Total Sale Amount (Incl. Shipping & GST)');
+      const commissionIndex = headers.indexOf('Meesho Commission (Incl. GST)');
+      
+      console.log(`Column indices: SubOrder=${subOrderIndex}, SKU=${supplierSkuIndex}, GST=${gstIndex}`);
+      
+      if (subOrderIndex === -1) {
+        return { payments: [], errors: ['Sub Order No column not found'] };
+      }
 
-      jsonData.forEach((row: any, index: number) => {
+      // Process data rows (starting after header row)
+      for (let i = headerRowIndex + 2; i < rawData.length; i++) {
         try {
+          const row = rawData[i] as any[];
+          if (!row || row.length < 5) continue;
+          
+          const subOrderNo = row[subOrderIndex];
+          const supplierSku = row[supplierSkuIndex];
+          const productGst = row[gstIndex];
+          
+          // Create payment record
           const payment: InsertPayment = {
-            subOrderNo: row['Sub Order No'] || row['Order ID'] || row['sub_order_no'],
-            settlementDate: row['Settlement Date'] ? new Date(row['Settlement Date']) : null,
-            settlementAmount: FileProcessor.sanitizeNumericField(row['Settlement Amount'] || row['Net Amount']),
-            orderValue: FileProcessor.sanitizeNumericField(row['Order Value'] || row['GMV']),
-            commissionFee: FileProcessor.sanitizeNumericField(row['Commission Fee'] || row['Commission']),
-            fixedFee: FileProcessor.sanitizeNumericField(row['Fixed Fee'] || row['Collection Fee']),
-            paymentGatewayFee: FileProcessor.sanitizeNumericField(row['Payment Gateway Fee'] || row['PG Fee']),
-            adsFee: FileProcessor.sanitizeNumericField(row['Ads Fee'] || row['Marketing Fee']),
+            subOrderNo: subOrderNo ? String(subOrderNo).trim() : '',
+            settlementDate: settlementDateIndex !== -1 && row[settlementDateIndex] ? new Date(row[settlementDateIndex]) : null,
+            settlementAmount: FileProcessor.sanitizeNumericField(settlementAmountIndex !== -1 ? row[settlementAmountIndex] : '0'),
+            orderValue: FileProcessor.sanitizeNumericField(orderValueIndex !== -1 ? row[orderValueIndex] : '0'),
+            commissionFee: FileProcessor.sanitizeNumericField(commissionIndex !== -1 ? row[commissionIndex] : '0'),
+            fixedFee: FileProcessor.sanitizeNumericField('0'),
+            paymentGatewayFee: FileProcessor.sanitizeNumericField('0'),
+            adsFee: FileProcessor.sanitizeNumericField('0'),
           };
 
           // Extract GST information for product updates
-          const sku = row['SKU'] || row['Product SKU'] || row['sku'];
-          const productGst = row['Product GST %'] || row['Product GST'] || row['GST %'] || row['GST Percent'];
-          
-          if (sku && productGst && !productGstUpdates.has(sku)) {
-            // Clean and validate GST value
+          if (supplierSku && productGst && !productGstUpdates.has(supplierSku)) {
             const sanitizedGst = FileProcessor.sanitizeGstField(productGst);
-            productGstUpdates.set(sku, sanitizedGst);
+            productGstUpdates.set(supplierSku, sanitizedGst);
+            console.log(`Found GST data: SKU ${supplierSku} -> ${sanitizedGst}%`);
           }
 
-          // Validation
+          // Validation - only add payments with sub order numbers
           if (!payment.subOrderNo) {
-            errors.push(`Missing sub order number at row ${index + 1}`);
-            return;
+            continue;
           }
 
           payments.push(payment);
         } catch (error) {
-          errors.push(`Error processing payment row ${index + 1}: ${error}`);
+          errors.push(`Error processing payment row ${i + 1}: ${error}`);
         }
-      });
+      }
+
+      console.log(`Found ${productGstUpdates.size} products with GST data to update`);
+
+      // Add diagnostic error if no payments were processed
+      if (payments.length === 0 && rawData.length > headerRowIndex + 2) {
+        errors.push(`No payments processed - data extraction failed. Found headers: ${headers.join(', ')}. Processing ${rawData.length - headerRowIndex - 2} data rows.`);
+        console.warn('Payment processing failed - no valid payment rows found');
+      }
 
       // Update products with GST information from payment file
       if (productGstUpdates.size > 0) {
@@ -288,12 +403,16 @@ export class FileProcessor {
         for (const [sku, gstPercent] of updates) {
           try {
             await storage.updateProduct(sku, { gstPercent });
+            console.log(`Updated GST for product ${sku}: ${gstPercent}%`);
           } catch (error) {
+            console.error(`Error updating GST for product ${sku}: ${error}`);
             errors.push(`Error updating GST for product ${sku}: ${error}`);
           }
         }
+        console.log(`Successfully updated GST for ${updates.length} products`);
       }
     } catch (error) {
+      console.error('XLSX parsing error:', error);
       errors.push(`XLSX parsing error: ${error}`);
     }
 
