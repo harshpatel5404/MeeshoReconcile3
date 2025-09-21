@@ -35,7 +35,8 @@ import type {
   ComprehensiveFinancialSummary, 
   SettlementComponentsData, 
   EarningsOverviewData, 
-  OperationalCostsData 
+  OperationalCostsData,
+  OrdersOverview 
 } from '@shared/schema';
 
 export default function Dashboard() {
@@ -59,7 +60,11 @@ export default function Dashboard() {
     queryKey: ['/api/dashboard/operational-costs'],
   });
 
-  const isLoading = summaryLoading || settlementLoading || earningsLoading || costsLoading;
+  const { data: ordersOverview, isLoading: ordersOverviewLoading } = useAuthQuery<OrdersOverview>({
+    queryKey: ['/api/dashboard/orders-overview'],
+  });
+
+  const isLoading = summaryLoading || settlementLoading || earningsLoading || costsLoading || ordersOverviewLoading;
 
   const handleRefreshData = async () => {
     if (!token) {
@@ -329,7 +334,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          {/* Orders Overview - Optimized */}
+          {/* Orders Overview - New 9 Metrics */}
           <Card className="modern-card hover-lift animate-slideInUp group" style={{"--stagger": 2} as any}>
             <CardHeader className="pb-4">
               <CardTitle className="text-xl font-bold flex items-center justify-between">
@@ -340,30 +345,21 @@ export default function Dashboard() {
                   <span>Orders Overview</span>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm text-muted-foreground font-normal">Total Orders</p>
-                  <p className="text-2xl font-bold text-blue-600">{summaryData.totalOrders.toLocaleString()}</p>
+                  <p className="text-sm text-muted-foreground font-normal">Delivered Orders</p>
+                  <p className="text-2xl font-bold text-blue-600">{(ordersOverview?.delivered ?? 0).toLocaleString()}</p>
                 </div>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Order Status Grid */}
+              {/* Primary Order Status Metrics */}
               <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Order Status</h4>
+                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Order Status Metrics</h4>
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 rounded-xl bg-green-50 border border-green-100 hover:scale-105 transition-transform cursor-pointer">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs text-green-700 font-medium">Delivered</p>
-                        <p className="text-lg font-bold text-green-600">{summaryData.delivered.toLocaleString()}</p>
-                      </div>
-                      <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                    </div>
-                  </div>
                   <div className="p-3 rounded-xl bg-blue-50 border border-blue-100 hover:scale-105 transition-transform cursor-pointer">
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-xs text-blue-700 font-medium">Shipped</p>
-                        <p className="text-lg font-bold text-blue-600">{summaryData.shipped.toLocaleString()}</p>
+                        <p className="text-lg font-bold text-blue-600">{(ordersOverview?.shipped ?? 0).toLocaleString()}</p>
                       </div>
                       <div className="w-2 h-2 rounded-full bg-blue-500"></div>
                     </div>
@@ -371,8 +367,8 @@ export default function Dashboard() {
                   <div className="p-3 rounded-xl bg-yellow-50 border border-yellow-100 hover:scale-105 transition-transform cursor-pointer">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs text-yellow-700 font-medium">Exchanged</p>
-                        <p className="text-lg font-bold text-yellow-600">{summaryData.exchanged.toLocaleString()}</p>
+                        <p className="text-xs text-yellow-700 font-medium">Ready To Ship</p>
+                        <p className="text-lg font-bold text-yellow-600">{(ordersOverview?.readyToShip ?? 0).toLocaleString()}</p>
                       </div>
                       <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
                     </div>
@@ -381,33 +377,42 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-xs text-red-700 font-medium">Cancelled</p>
-                        <p className="text-lg font-bold text-red-600">{summaryData.cancelled.toLocaleString()}</p>
+                        <p className="text-lg font-bold text-red-600">{(ordersOverview?.cancelled ?? 0).toLocaleString()}</p>
                       </div>
                       <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-purple-50 border border-purple-100 hover:scale-105 transition-transform cursor-pointer">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-purple-700 font-medium">Exchanged</p>
+                        <p className="text-lg font-bold text-purple-600">{(ordersOverview?.exchanged ?? 0).toLocaleString()}</p>
+                      </div>
+                      <div className="w-2 h-2 rounded-full bg-purple-500"></div>
                     </div>
                   </div>
                 </div>
               </div>
               
-              {/* Key Metrics */}
+              {/* Key Order Metrics */}
               <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Key Metrics</h4>
-                <div className="grid grid-cols-1 gap-3">
-                  <div className="flex justify-between items-center py-3 px-4 bg-gradient-to-r from-slate-50 to-slate-100 rounded-lg hover:from-slate-100 hover:to-slate-150 transition-all">
+                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Key Order Metrics</h4>
+                <div className="grid grid-cols-1 gap-2">
+                  <div className="flex justify-between items-center py-2 px-3 bg-gradient-to-r from-slate-50 to-slate-100 rounded-lg hover:from-slate-100 hover:to-slate-150 transition-all">
                     <span className="text-sm font-medium">Avg. Order Value</span>
-                    <span className="text-lg font-bold">{formatCurrency(summaryData.avgOrderValue)}</span>
+                    <span className="text-base font-bold">{formatCurrency(ordersOverview?.avgOrderValue ?? 0)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-3 px-4 bg-gradient-to-r from-red-50 to-orange-50 rounded-lg hover:from-red-100 hover:to-orange-100 transition-all">
+                  <div className="flex justify-between items-center py-2 px-3 bg-gradient-to-r from-red-50 to-orange-50 rounded-lg hover:from-red-100 hover:to-orange-100 transition-all">
                     <span className="text-sm font-medium">Return Rate</span>
-                    <span className="text-lg font-bold text-red-600">{summaryData.returnRate.toFixed(1)}%</span>
+                    <span className="text-base font-bold text-red-600">{formatPercentage(ordersOverview?.returnRate ?? 0)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-3 px-4 bg-gradient-to-r from-yellow-50 to-amber-50 rounded-lg hover:from-yellow-100 hover:to-amber-100 transition-all">
-                    <span className="text-sm font-medium">Awaiting Payment</span>
-                    <span className="text-lg font-bold text-yellow-600">{summaryData.ordersAwaitingPaymentRecord.toLocaleString()}</span>
+                  <div className="flex justify-between items-center py-2 px-3 bg-gradient-to-r from-orange-50 to-red-50 rounded-lg hover:from-orange-100 hover:to-red-100 transition-all">
+                    <span className="text-sm font-medium">RTO (RTO Complete + Locked)</span>
+                    <span className="text-base font-bold text-orange-600">{(ordersOverview?.rto ?? 0).toLocaleString()}</span>
                   </div>
-                  <div className="flex justify-between items-center py-3 px-4 bg-gradient-to-r from-orange-50 to-red-50 rounded-lg hover:from-orange-100 hover:to-red-100 transition-all">
-                    <span className="text-sm font-medium">Returns (RTO)</span>
-                    <span className="text-lg font-bold text-orange-600">{summaryData.returns.toLocaleString()}</span>
+                  <div className="flex justify-between items-center py-2 px-3 bg-gradient-to-r from-yellow-50 to-amber-50 rounded-lg hover:from-yellow-100 hover:to-amber-100 transition-all">
+                    <span className="text-sm font-medium">Awaiting Payment Orders</span>
+                    <span className="text-base font-bold text-yellow-600">{(ordersOverview?.awaitingPaymentOrders ?? 0).toLocaleString()}</span>
                   </div>
                 </div>
               </div>

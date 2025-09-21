@@ -303,3 +303,17 @@ export interface SyncEvent {
   changes: Record<string, any>;
   timestamp: Date;
 }
+
+// Orders Overview Analytics (separate from Order Status chart data)
+export interface OrdersOverview {
+  delivered: number;
+  shipped: number;
+  readyToShip: number;
+  cancelled: number;
+  rto: number; // RTO Complete + RTO Locked combined
+  exchanged: number;
+  avgOrderValue: number;
+  returnRate: number; // Percentage of returns vs delivered
+  awaitingPaymentOrders: number; // Delivered orders without payment records
+  totalOrdersUsedForAOV: number; // Denominator for AOV calculation
+}

@@ -20,6 +20,7 @@ import {
   type DailyVolumeData,
   type TopProductsData,
   type TopReturnsData,
+  type OrdersOverview,
   type FileStructure, type ColumnMetadata, type LiveDashboardMetrics
 } from "@shared/schema";
 
@@ -115,6 +116,9 @@ export interface IStorage {
   getDailyVolumeAndAOV(): Promise<DailyVolumeData[]>;
   getTopPerformingProducts(): Promise<TopProductsData[]>;
   getTopReturnProducts(): Promise<TopReturnsData[]>;
+  
+  // Orders Overview Analytics (separate from Order Status chart)
+  getOrdersOverview(): Promise<OrdersOverview>;
 
   // Live Dashboard Metrics
   getLiveDashboardMetrics(): Promise<LiveDashboardMetrics>;
@@ -1030,6 +1034,273 @@ export class DatabaseStorage implements IStorage {
       rtoCount: product.rtoCount,
       combinedCount: product.returns + product.rtoCount,
     }));
+  }
+
+  async getOrdersOverview(): Promise<OrdersOverview> {
+    try {
+      // Try to get from cache first
+      const cached = await this.getCalculationCache('orders_overview');
+      if (cached && (Date.now() - new Date(cached.lastUpdated).getTime()) < 10 * 60 * 1000) {
+        return cached.calculationResult as OrdersOverview;
+      }
+
+      // Get payment status for each sub order number (aggregated to handle multiple payments)
+      const paymentStatusMap = new Map<string, boolean>();
+      const paymentData = await db
+        .select({
+          subOrderNo: payments.subOrderNo,
+          hasPayment: sql<boolean>`COUNT(*) > 0 AND SUM(CASE WHEN COALESCE(${payments.settlementAmount}, 0) > 0 THEN 1 ELSE 0 END) > 0`,
+        })
+        .from(payments)
+        .groupBy(payments.subOrderNo);
+
+      paymentData.forEach(payment => {
+        paymentStatusMap.set(payment.subOrderNo, payment.hasPayment);
+      });
+
+      // Get static orders data
+      const staticOrdersData = await db
+        .select({
+          subOrderNo: orders.subOrderNo,
+          reasonForCredit: orders.reasonForCredit,
+          discountedPrice: orders.discountedPrice,
+          listedPrice: orders.listedPrice,
+        })
+        .from(orders);
+
+      // Get dynamic orders data from current uploads
+      const dynamicOrdersData = await db
+        .select({
+          subOrderNo: ordersDynamic.subOrderNo,
+          dynamicData: ordersDynamic.dynamicData,
+        })
+        .from(ordersDynamic)
+        .innerJoin(uploads, and(
+          eq(ordersDynamic.uploadId, uploads.id),
+          eq(uploads.isCurrentVersion, true)
+        ));
+
+      // Helper function to normalize status values for consistent matching
+      const normalizeStatus = (status: string): string => {
+        if (!status) return '';
+        return status.toString().toUpperCase().trim();
+      };
+
+      // Helper function to extract order value from dynamic data with quantity
+      const extractOrderValue = (dynamicData: any): number => {
+        const possiblePriceKeys = [
+          'Supplier Discounted Price (Incl GST and Commision)',
+          'Discounted Price', 
+          'discountedPrice',
+          'Listed Price',
+          'listedPrice'
+        ];
+        
+        let unitPrice = 0;
+        for (const key of possiblePriceKeys) {
+          if (dynamicData && dynamicData[key] && !isNaN(Number(dynamicData[key]))) {
+            unitPrice = Number(dynamicData[key]);
+            break;
+          }
+        }
+        
+        // Get quantity and multiply
+        const quantity = Number(dynamicData?.['Quantity'] || dynamicData?.['quantity'] || 1);
+        return unitPrice * quantity;
+      };
+
+      // Explicit status mapping table with precedence rules
+      const STATUS_MAPPINGS: Record<string, string> = {
+        // Delivered statuses
+        'DELIVERED': 'DELIVERED',
+        
+        // Shipped statuses  
+        'SHIPPED': 'SHIPPED',
+        'IN TRANSIT': 'SHIPPED', 
+        'OUT FOR DELIVERY': 'SHIPPED',
+        'IN_TRANSIT': 'SHIPPED',
+        'OUT_FOR_DELIVERY': 'SHIPPED',
+        
+        // Ready to ship statuses
+        'READY TO SHIP': 'READY_TO_SHIP',
+        'RTS': 'READY_TO_SHIP',
+        'READY_TO_SHIP': 'READY_TO_SHIP',
+        
+        // Cancelled statuses
+        'CANCELLED': 'CANCELLED',
+        'CANCELED': 'CANCELLED',
+        
+        // RTO statuses (ONLY RTO_COMPLETE and RTO_LOCKED)
+        'RTO_COMPLETE': 'RTO',
+        'RTO_LOCKED': 'RTO',
+        // Explicitly exclude other RTO variants like RTO_OFD
+        
+        // Exchanged statuses
+        'EXCHANGE': 'EXCHANGED',
+        'EXCHANGED': 'EXCHANGED',
+        
+        // Return statuses
+        'RETURN': 'RETURN',
+        'RETURNED': 'RETURN', 
+        'REFUND': 'RETURN',
+      };
+
+      // Canonical status resolver with explicit precedence: dynamic over static
+      const resolveOrderStatus = (staticStatus: string, dynamicData: any): string => {
+        // Priority 1: Check dynamic data for "Reason for Credit Entry" (most authoritative)
+        if (dynamicData && dynamicData['Reason for Credit Entry']) {
+          const status = normalizeStatus(dynamicData['Reason for Credit Entry']);
+          const mapped = (STATUS_MAPPINGS as any)[status];
+          if (mapped) return mapped;
+        }
+        
+        // Priority 2: Check dynamic data for other status fields
+        const otherStatusKeys = ['Order Status', 'Sub Order Status', 'status', 'Status'];
+        for (const key of otherStatusKeys) {
+          if (dynamicData && dynamicData[key]) {
+            const status = normalizeStatus(dynamicData[key]);
+            const mapped = (STATUS_MAPPINGS as any)[status];
+            if (mapped) return mapped;
+          }
+        }
+        
+        // Priority 3: Fallback to static reasonForCredit
+        if (staticStatus) {
+          const status = normalizeStatus(staticStatus);
+          const mapped = (STATUS_MAPPINGS as any)[status];
+          if (mapped) return mapped;
+        }
+        
+        return 'OTHER';
+      };
+
+      // Initialize metrics
+      let delivered = 0;
+      let shipped = 0; 
+      let readyToShip = 0;
+      let cancelled = 0;
+      let rto = 0;
+      let exchanged = 0;
+      let returns = 0;
+      let totalDeliveredValue = 0;
+      let awaitingPaymentOrders = 0;
+
+      // Create consolidated order data map
+      const orderMap = new Map<string, {
+        status: string,
+        orderValue: number,
+        hasPayment: boolean,
+        dynamicData: any
+      }>();
+
+      // Build merged order data with proper deduplication and precedence
+      // Priority: Dynamic data over static, with quantity-adjusted values
+      
+      // First pass: Process static orders
+      for (const order of staticOrdersData) {
+        const orderValue = Number(order.discountedPrice || order.listedPrice || 0);
+        const hasPayment = paymentStatusMap.get(order.subOrderNo) || false;
+        
+        orderMap.set(order.subOrderNo, {
+          status: order.reasonForCredit || '',
+          orderValue,
+          hasPayment,
+          dynamicData: null
+        });
+      }
+
+      // Second pass: Merge dynamic orders (prefer dynamic when available)
+      for (const dynOrder of dynamicOrdersData) {
+        const dynamicData = dynOrder.dynamicData as Record<string, any>;
+        const existing = orderMap.get(dynOrder.subOrderNo);
+        
+        if (existing) {
+          // Update existing with dynamic data (higher priority)
+          existing.dynamicData = dynamicData;
+          const dynamicValue = extractOrderValue(dynamicData);
+          if (dynamicValue > 0) {
+            existing.orderValue = dynamicValue;
+          }
+        } else {
+          // New order from dynamic data only
+          const orderValue = extractOrderValue(dynamicData);
+          const hasPayment = paymentStatusMap.get(dynOrder.subOrderNo) || false;
+          
+          orderMap.set(dynOrder.subOrderNo, {
+            status: '',
+            orderValue,
+            hasPayment,
+            dynamicData
+          });
+        }
+      }
+
+      // Calculate final metrics with proper deduplication
+      for (const [subOrderNo, orderData] of Array.from(orderMap.entries())) {
+        const resolvedStatus = resolveOrderStatus(orderData.status, orderData.dynamicData);
+        
+        switch (resolvedStatus) {
+          case 'DELIVERED':
+            delivered++;
+            totalDeliveredValue += orderData.orderValue;
+            if (!orderData.hasPayment) {
+              awaitingPaymentOrders++;
+            }
+            break;
+          case 'SHIPPED':
+            shipped++;
+            break;
+          case 'READY_TO_SHIP':
+            readyToShip++;
+            break;
+          case 'CANCELLED':
+            cancelled++;
+            break;
+          case 'RTO':
+            rto++; // Only RTO_COMPLETE and RTO_LOCKED count here
+            break;
+          case 'EXCHANGED':
+            exchanged++;
+            totalDeliveredValue += orderData.orderValue; // Include exchanged in AOV
+            break;
+          case 'RETURN':
+            returns++; // Returns counted separately for return rate calculation
+            break;
+        }
+      }
+
+      // Calculate derived metrics
+      const avgOrderValue = delivered > 0 ? totalDeliveredValue / delivered : 0;
+      const returnRate = delivered > 0 ? (returns / delivered) * 100 : 0;
+
+      const result: OrdersOverview = {
+        delivered,
+        shipped,
+        readyToShip,
+        cancelled,
+        rto,
+        exchanged,
+        avgOrderValue: Math.round(avgOrderValue * 100) / 100,
+        returnRate: Math.round(returnRate * 100) / 100,
+        awaitingPaymentOrders,
+        totalOrdersUsedForAOV: delivered,
+      };
+
+      // Cache the result
+      const currentUploads = await db.select().from(uploads).where(eq(uploads.isCurrentVersion, true));
+      await this.setCalculationCache({
+        cacheKey: 'orders_overview',
+        calculationType: 'orders_overview',
+        calculationResult: result,
+        dependsOnUploads: currentUploads.map(u => u.id),
+      });
+
+      return result;
+      
+    } catch (error) {
+      console.error('Error calculating orders overview:', error);
+      throw new Error(`Failed to calculate orders overview: ${error}`);
+    }
   }
 
   // Dynamic Products Implementation

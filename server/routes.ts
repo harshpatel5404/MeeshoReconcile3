@@ -266,6 +266,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Orders Overview Analytics (separate from Order Status chart data)
+  app.get('/api/dashboard/orders-overview', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const ordersOverview = await storage.getOrdersOverview();
+      res.json(ordersOverview);
+    } catch (error) {
+      console.error('Failed to fetch orders overview:', error);
+      res.status(500).json({ message: 'Failed to fetch orders overview' });
+    }
+  });
+
   // Live Dashboard Metrics
   app.get('/api/dashboard/live-metrics', authenticateUser, async (req: Request, res: Response) => {
     try {
