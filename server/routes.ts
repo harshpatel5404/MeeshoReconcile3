@@ -503,7 +503,7 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
         );
         
         if (productsDynamic.length > 0) {
-          await storage.replaceAllProductsDynamic(uploadId, productsDynamic);
+          await storage.addUniqueProductsDynamic(uploadId, productsDynamic);
         }
 
         // Save file structure metadata
@@ -572,9 +572,15 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
           console.log(`Updating ${result.productGstData.length} products with GST data from ZIP`);
           for (const gstData of result.productGstData) {
             try {
-              await storage.updateProductGst(gstData.sku, gstData.gstPercent, gstData.productName);
+              console.log(`Attempting to update GST for SKU: "${gstData.sku}" with ${gstData.gstPercent}% GST`);
+              const updated = await storage.updateProductGst(gstData.sku, gstData.gstPercent, gstData.productName);
+              if (updated) {
+                console.log(`✓ Successfully updated GST for SKU: "${gstData.sku}" to ${gstData.gstPercent}%`);
+              } else {
+                console.warn(`✗ No product found with SKU: "${gstData.sku}" - GST update skipped`);
+              }
             } catch (error) {
-              console.warn(`Failed to update GST for product ${gstData.sku}:`, error);
+              console.error(`✗ Failed to update GST for product "${gstData.sku}":`, error);
             }
           }
         }

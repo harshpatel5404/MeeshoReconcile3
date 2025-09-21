@@ -182,7 +182,7 @@ export default function Upload() {
                 data-testid="input-payment-file"
               />
               
-              {paymentFiles && (
+              {paymentFiles && paymentFiles.length > 0 && paymentFiles[0] && (
                 <div className="mt-4 p-3 bg-muted rounded-md">
                   <p className="text-sm font-medium">Selected: {paymentFiles[0].name}</p>
                 </div>
@@ -219,7 +219,7 @@ export default function Upload() {
                 data-testid="input-orders-file"
               />
               
-              {ordersFiles && (
+              {ordersFiles && ordersFiles.length > 0 && ordersFiles[0] && (
                 <div className="mt-4 p-3 bg-muted rounded-md">
                   <p className="text-sm font-medium">Selected: {ordersFiles[0].name}</p>
                 </div>

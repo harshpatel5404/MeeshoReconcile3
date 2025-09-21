@@ -55,6 +55,7 @@ export interface IStorage {
   updateProductDynamic(id: string, product: Partial<InsertProductDynamic>): Promise<ProductDynamic | undefined>;
   bulkCreateProductsDynamic(products: InsertProductDynamic[]): Promise<ProductDynamic[]>;
   replaceAllProductsDynamic(uploadId: string, products: InsertProductDynamic[]): Promise<ProductDynamic[]>;
+  addUniqueProductsDynamic(uploadId: string, products: InsertProductDynamic[]): Promise<ProductDynamic[]>;
 
   // Orders (Legacy)
   getAllOrders(filters?: OrderFilters): Promise<Order[]>;
@@ -254,11 +255,41 @@ export class DatabaseStorage implements IStorage {
         updateData.title = productName;
       }
       
-      const result = await db
+      // First try exact match
+      let result = await db
         .update(products)
         .set(updateData)
         .where(eq(products.sku, sku))
         .returning();
+      
+      // If no exact match, try flexible matching
+      if (result.length === 0) {
+        // Try case-insensitive match
+        result = await db
+          .update(products)
+          .set(updateData)
+          .where(sql`LOWER(${products.sku}) = LOWER(${sku})`)
+          .returning();
+        
+        // If still no match, try normalized matching (remove special chars, spaces)
+        if (result.length === 0) {
+          const normalizedInputSku = sku.toLowerCase().replace(/[^a-z0-9]/g, '');
+          
+          const allProducts = await db.select().from(products);
+          for (const product of allProducts) {
+            const normalizedProductSku = product.sku.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (normalizedProductSku === normalizedInputSku) {
+              result = await db
+                .update(products)
+                .set(updateData)
+                .where(eq(products.sku, product.sku))
+                .returning();
+              break;
+            }
+          }
+        }
+      }
+      
       return result[0];
     } catch (error) {
       console.error(`Error updating GST for product ${sku}:`, error);
@@ -1016,6 +1047,22 @@ export class DatabaseStorage implements IStorage {
     return await db.insert(productsDynamic).values(products).returning();
   }
 
+  async addUniqueProductsDynamic(uploadId: string, products: InsertProductDynamic[]): Promise<ProductDynamic[]> {
+    if (products.length === 0) return [];
+    
+    // Insert only unique products (ignore conflicts based on sku and uploadId combination)
+    try {
+      return await db
+        .insert(productsDynamic)
+        .values(products)
+        .onConflictDoNothing({ target: [productsDynamic.sku, productsDynamic.uploadId] })
+        .returning();
+    } catch (error) {
+      console.error('Error during unique product creation:', error);
+      throw new Error(`Failed to add unique products: ${error}`);
+    }
+  }
+
   // Dynamic Orders Implementation
   async getAllOrdersDynamic(): Promise<OrderDynamic[]> {
     return db.select().from(ordersDynamic).orderBy(desc(ordersDynamic.updatedAt));
@@ -1055,8 +1102,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async replaceAllOrdersDynamic(uploadId: string, orders: InsertOrderDynamic[]): Promise<OrderDynamic[]> {
-    // First, delete all existing orders for this upload
-    await db.delete(ordersDynamic).where(eq(ordersDynamic.uploadId, uploadId));
+    // For orders, clear ALL existing orders regardless of upload_id to prevent duplicates
+    // This ensures that when users upload new order files, old data is completely replaced
+    console.log('Clearing all existing orders before adding new ones to prevent duplicates');
+    await db.delete(ordersDynamic);
     
     // Then insert the new orders
     if (orders.length === 0) return [];
