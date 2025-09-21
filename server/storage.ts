@@ -764,13 +764,13 @@ export class DatabaseStorage implements IStorage {
     const [orderStats] = await db
       .select({
         totalOrders: count(ordersDynamic.id),
-        totalSaleAmount: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'discountedPrice' AS DECIMAL))`,
-        avgOrderValue: sql<number>`AVG(CAST(${ordersDynamic.dynamicData}->>'discountedPrice' AS DECIMAL))`,
-        delivered: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'reasonForCredit') = 'DELIVERED' then 1 end)`,
-        shipped: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'reasonForCredit') IN ('SHIPPED', 'IN TRANSIT') then 1 end)`,
-        exchanged: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'reasonForCredit') IN ('EXCHANGE', 'EXCHANGED') then 1 end)`,
-        cancelled: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'reasonForCredit') IN ('CANCELLED', 'CANCELED') then 1 end)`,
-        returns: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'reasonForCredit') IN ('RETURN', 'RETURNED', 'REFUND', 'RTO COMPLETE', 'RTO_COMPLETE') then 1 end)`,
+        totalSaleAmount: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL))`,
+        avgOrderValue: sql<number>`AVG(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL))`,
+        delivered: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') = 'DELIVERED' then 1 end)`,
+        shipped: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('SHIPPED', 'READY_TO_SHIP') then 1 end)`,
+        exchanged: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('EXCHANGE', 'EXCHANGED') then 1 end)`,
+        cancelled: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('CANCELLED', 'CANCELED') then 1 end)`,
+        returns: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RETURN', 'RETURNED', 'REFUND', 'RTO', 'RTO_COMPLETE') then 1 end)`,
       })
       .from(ordersDynamic)
       .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
@@ -786,7 +786,7 @@ export class DatabaseStorage implements IStorage {
       })
       .from(payments)
       .where(sql`${payments.subOrderNo} IN (
-        SELECT DISTINCT ${ordersDynamic.dynamicData}->>'subOrderNo' 
+        SELECT DISTINCT ${ordersDynamic.dynamicData}->>'Sub Order No' 
         FROM ${ordersDynamic} 
         WHERE ${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)
       )`);
@@ -808,7 +808,7 @@ export class DatabaseStorage implements IStorage {
         `,
       })
       .from(ordersDynamic)
-      .leftJoin(productsDynamic, sql`${ordersDynamic.dynamicData}->>'sku' = ${productsDynamic.sku} 
+      .leftJoin(productsDynamic, sql`${ordersDynamic.dynamicData}->>'SKU' = ${productsDynamic.sku} 
                                      AND ${productsDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true AND file_type LIKE '%orders%')`)
       .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
 

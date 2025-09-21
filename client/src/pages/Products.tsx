@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ export default function Products() {
   const [bulkCostPrice, setBulkCostPrice] = useState('');
   const [bulkPackagingCost, setBulkPackagingCost] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [productValues, setProductValues] = useState<Record<string, {costPrice: string, packagingCost: string, gstPercent: string}>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const apiRequest = useAuthApiRequest();
@@ -22,6 +23,21 @@ export default function Products() {
   });
 
   const productsArray = Array.isArray(products) ? products : [];
+
+  // Sync product values with incoming data
+  useEffect(() => {
+    if (productsArray.length > 0) {
+      const newValues: Record<string, {costPrice: string, packagingCost: string, gstPercent: string}> = {};
+      productsArray.forEach((product: any) => {
+        newValues[product.sku] = {
+          costPrice: product.costPrice || '0',
+          packagingCost: product.packagingCost || '0',
+          gstPercent: product.gstPercent ?? '5'
+        };
+      });
+      setProductValues(newValues);
+    }
+  }, [productsArray]);
 
   const updateProductMutation = useMutation({
     mutationFn: async ({ sku, data }: { sku: string; data: any }) => {
@@ -42,6 +58,9 @@ export default function Products() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/products'] });
+      // Clear the bulk input fields
+      setBulkCostPrice('');
+      setBulkPackagingCost('');
       toast({
         title: "Bulk update completed",
         description: "All products have been updated successfully.",
@@ -91,13 +110,27 @@ export default function Products() {
     });
   };
 
-  const calculateFinalPrice = (costPrice: number, packagingCost: number) => {
-    // Final price is just cost + packaging (no GST added)
+  const updateProductValue = (sku: string, field: string, value: string) => {
+    setProductValues(prev => ({
+      ...prev,
+      [sku]: {
+        ...prev[sku],
+        [field]: value
+      }
+    }));
+  };
+
+  const calculateFinalPrice = (costPrice: number, packagingCost: number, gstPercent: number) => {
+    // Final price = cost + (cost × GST%) + packaging
     const baseCost = costPrice || 0;
-    const costPlusPackaging = baseCost + (packagingCost || 0);
+    const packaging = packagingCost || 0;
+    const gst = gstPercent || 0;
+    
+    const gstAmount = (baseCost * gst) / 100;
+    const finalPrice = baseCost + gstAmount + packaging;
     
     // Round to 2 decimals
-    return Math.round(costPlusPackaging * 100) / 100;
+    return Math.round(finalPrice * 100) / 100;
   };
 
 
@@ -244,23 +277,27 @@ export default function Products() {
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Cost (₹)</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Packaging (₹)</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">GST (%)</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Total Orders</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Final Price (₹)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                         Loading products...
                       </td>
                     </tr>
                   ) : filteredProducts.length > 0 ? (
                     filteredProducts.map((product: any, index: number) => {
-                      const costPrice = parseFloat(product.costPrice || '0');
-                      const packagingCost = parseFloat(product.packagingCost || '0');
-                      const gstPercent = parseFloat(product.gstPercent ?? '5');
-                      const finalPrice = calculateFinalPrice(costPrice, packagingCost);
+                      const currentValues = productValues[product.sku] || {
+                        costPrice: product.costPrice || '0',
+                        packagingCost: product.packagingCost || '0',
+                        gstPercent: product.gstPercent ?? '5'
+                      };
+                      const costPrice = parseFloat(currentValues.costPrice);
+                      const packagingCost = parseFloat(currentValues.packagingCost);
+                      const gstPercent = parseFloat(currentValues.gstPercent);
+                      const finalPrice = calculateFinalPrice(costPrice, packagingCost, gstPercent);
                       
                       return (
                         <tr key={product.sku} className="hover:bg-muted/50" data-testid={`row-product-${product.sku}`}>
@@ -279,7 +316,8 @@ export default function Products() {
                             <Input
                               type="number"
                               step="0.01"
-                              defaultValue={product.costPrice || '0'}
+                              value={currentValues.costPrice}
+                              onChange={(e) => updateProductValue(product.sku, 'costPrice', e.target.value)}
                               onBlur={(e) => handleProductUpdate(product.sku, 'costPrice', e.target.value)}
                               className="w-24"
                               data-testid={`input-cost-price-${product.sku}`}
@@ -289,7 +327,8 @@ export default function Products() {
                             <Input
                               type="number"
                               step="0.01"
-                              defaultValue={product.packagingCost || '0'}
+                              value={currentValues.packagingCost}
+                              onChange={(e) => updateProductValue(product.sku, 'packagingCost', e.target.value)}
                               onBlur={(e) => handleProductUpdate(product.sku, 'packagingCost', e.target.value)}
                               className="w-24"
                               data-testid={`input-packaging-cost-${product.sku}`}
@@ -301,23 +340,12 @@ export default function Products() {
                               step="0.1"
                               min="0"
                               max="100"
-                              defaultValue={product.gstPercent ?? '5'}
+                              value={currentValues.gstPercent}
+                              onChange={(e) => updateProductValue(product.sku, 'gstPercent', e.target.value)}
                               onBlur={(e) => handleProductUpdate(product.sku, 'gstPercent', e.target.value)}
                               className="w-20"
                               data-testid={`input-gst-percent-${product.sku}`}
                             />
-                          </td>
-                          <td className="px-4 py-3 text-sm text-center">
-                            <div className="flex flex-col">
-                              <span className={`font-medium ${
-                                (product.totalOrders || 0) > 0 ? 'text-blue-600' : 'text-gray-400'
-                              }`}>
-                                {product.totalOrders || 0}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {(product.totalOrders || 0) === 1 ? 'order' : 'orders'}
-                              </span>
-                            </div>
                           </td>
                           <td className="px-4 py-3 text-sm">
                             <div className="flex flex-col">
@@ -336,7 +364,7 @@ export default function Products() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                         No products found. {searchQuery ? 'Try adjusting your search.' : 'Upload order files to create products.'}
                       </td>
                     </tr>
