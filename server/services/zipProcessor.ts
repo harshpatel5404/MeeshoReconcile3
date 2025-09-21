@@ -149,84 +149,17 @@ export class ZIPProcessor {
       
       console.log(`Found headers at row ${headerRowIndex} in ${filename}:`, headers.slice(0, 10));
 
-      // Enhanced column detection with multiple aliases
-      const subOrderAliases = [
-        'Sub Order No', 'SubOrderNo', 'sub_order_no', 'Sub Order ID',
-        'Sub-Order-No', 'SUB_ORDER_NO', 'Order No', 'OrderNo'
-      ];
-      const subOrderIndex = headers.findIndex(h => 
-        h && subOrderAliases.some(alias => 
-          h === alias || h.toLowerCase().includes(alias.toLowerCase())
-        )
-      );
-      
-      // Enhanced settlement amount detection
-      const settlementAliases = [
-        'Final Settlement Amount', 'Settlement Amount', 'Net Settlement',
-        'Final Settlement', 'Settlement', 'Net Amount', 'Payout Amount',
-        'Final Amount', 'Amount Settled', 'Total Settlement'
-      ];
-      const settlementIndex = headers.findIndex(h => 
-        h && settlementAliases.some(alias => 
-          h === alias || h.toLowerCase().includes(alias.toLowerCase())
-        )
-      );
-      
-      // Enhanced date detection
-      const dateAliases = [
-        'Payment Date', 'Settlement Date', 'Payout Date', 'Transaction Date',
-        'Date', 'Settled Date', 'Payment Settlement Date', 'Processing Date',
-        'Order Date'
-      ];
-      const dateIndex = headers.findIndex(h => 
-        h && dateAliases.some(alias => 
-          h === alias || h.toLowerCase().includes(alias.toLowerCase())
-        )
-      );
-
-      // GST percentage detection
-      const gstAliases = [
-        'Product GST %', 'GST %', 'GST Percent', 'GST', 'Tax %', 
-        'Tax Percent', 'Product Tax %', 'Gst %'
-      ];
-      const gstIndex = headers.findIndex(h => 
-        h && gstAliases.some(alias => 
-          h === alias || h.toLowerCase().includes(alias.toLowerCase())
-        )
-      );
-
-      // Product name detection (for GST mapping)
-      const productNameAliases = [
-        'Product Name', 'Item Name', 'Title', 'Product Title',
-        'Product', 'Item', 'Name'
-      ];
-      const productNameIndex = headers.findIndex(h => 
-        h && productNameAliases.some(alias => 
-          h === alias || h.toLowerCase().includes(alias.toLowerCase())
-        )
-      );
-
-      // SKU detection 
-      const skuAliases = [
-        'Supplier SKU', 'SKU', 'Product SKU', 'Item SKU', 
-        'Product Code', 'Item Code', 'sku'
-      ];
-      const skuIndex = headers.findIndex(h => 
-        h && skuAliases.some(alias => 
-          h === alias || h.toLowerCase().includes(alias.toLowerCase())
-        )
-      );
-
-      // Order status detection
-      const orderStatusAliases = [
-        'Live Order Status', 'Order Status', 'Status', 'Current Status',
-        'Order State', 'Delivery Status', 'Live Status'
-      ];
-      const orderStatusIndex = headers.findIndex(h => 
-        h && orderStatusAliases.some(alias => 
-          h === alias || h.toLowerCase().includes(alias.toLowerCase())
-        )
-      );
+      // EXACT column detection based on real XLSX file analysis (42 columns)
+      // Column mapping from actual file: 2918427_SP_ORDER_ADS_REFERRAL_PAYMENT_FILE_PREVIOUS_PAYMENT_2025-08-01_2025-08-31.xlsx
+      const subOrderIndex = headers.findIndex(h => h === 'Sub Order No'); // Column 1
+      const settlementIndex = headers.findIndex(h => h === 'Final Settlement Amount'); // Column 12
+      const dateIndex = headers.findIndex(h => h === 'Payment Date'); // Column 11
+      const gstIndex = headers.findIndex(h => h === 'Product GST %'); // Column 7
+      const productNameIndex = headers.findIndex(h => h === 'Product Name'); // Column 4
+      const skuIndex = headers.findIndex(h => h === 'Supplier SKU'); // Column 5
+      const orderStatusIndex = headers.findIndex(h => h === 'Live Order Status'); // Column 6
+      const orderDateIndex = headers.findIndex(h => h === 'Order Date'); // Column 2
+      const totalSaleIndex = headers.findIndex(h => h === 'Total Sale Amount (Incl. Shipping & GST)'); // Column 14
 
       if (subOrderIndex === -1) {
         errors.push(`${filename}: Could not find Sub Order No column. Available headers: ${headers.slice(0, 10).join(', ')}`);
@@ -242,6 +175,8 @@ export class ZIPProcessor {
       console.log(`- Product Name: ${productNameIndex >= 0 ? `"${headers[productNameIndex]}" (index ${productNameIndex})` : 'NOT FOUND'}`);
       console.log(`- SKU: ${skuIndex >= 0 ? `"${headers[skuIndex]}" (index ${skuIndex})` : 'NOT FOUND'}`);
       console.log(`- Order Status: ${orderStatusIndex >= 0 ? `"${headers[orderStatusIndex]}" (index ${orderStatusIndex})` : 'NOT FOUND'}`);
+      console.log(`- Order Date: ${orderDateIndex >= 0 ? `"${headers[orderDateIndex]}" (index ${orderDateIndex})` : 'NOT FOUND'}`);
+      console.log(`- Total Sale Amount: ${totalSaleIndex >= 0 ? `"${headers[totalSaleIndex]}" (index ${totalSaleIndex})` : 'NOT FOUND'}`);
       
       if (settlementIndex === -1) {
         console.warn(`${filename}: Settlement amount column not found. Payment amounts will be set to 0.`);
@@ -298,10 +233,16 @@ export class ZIPProcessor {
             }
           }
 
+          // Enhanced payment object with more financial data
           const payment: InsertPayment = {
             subOrderNo,
             settlementAmount: settlementAmount.toString(),
-            settlementDate
+            settlementDate,
+            orderValue: totalSaleIndex !== -1 ? this.sanitizeNumericField(row[totalSaleIndex]).toString() : '',
+            commissionFee: '', // Will be calculated from commission columns if needed
+            fixedFee: '', // Will be calculated from fee columns if needed
+            paymentGatewayFee: '', // Will be calculated from gateway fee columns if needed
+            adsFee: '' // Will be calculated from ads fee columns if needed
           };
 
           payments.push(payment);

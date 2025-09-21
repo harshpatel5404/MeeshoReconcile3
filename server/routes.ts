@@ -520,26 +520,28 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
         console.log(`Processed ${recordsProcessed} orders dynamically, extracted ${productsDynamic.length} products`);
       }
 
-      // Process orders through legacy method to populate the main orders table with payment data
+      // Process orders through ENHANCED CSV processor with exact column mapping 
       // Only run this if dynamic processing succeeded to avoid conflicts
       if (recordsProcessed > 0) {
-        const legacyResult = await FileProcessor.processOrdersCSV(buffer);
-        if (legacyResult.orders) {
+        const { CSVProcessor } = await import('./services/csvProcessor');
+        const enhancedResult = await CSVProcessor.processOrdersCSV(buffer);
+        if (enhancedResult.orders) {
           try {
             // Use upsert logic to handle duplicates gracefully
-            await storage.bulkUpsertOrders(legacyResult.orders);
+            await storage.bulkUpsertOrders(enhancedResult.orders);
             
             // Extract products with metadata from CSV if available
-            await FileProcessor.extractProductsFromOrders(legacyResult.orders, gstPercent || '18');
+            await FileProcessor.extractProductsFromOrders(enhancedResult.orders, gstPercent || '5');
             
-            // Apply product metadata from CSV (GST%, Cost Price) if available
-            if (legacyResult.productMetadata && legacyResult.productMetadata.length > 0) {
-              console.log(`Applying ${legacyResult.productMetadata.length} product metadata records from CSV`);
-              for (const metadata of legacyResult.productMetadata) {
+            // Apply product metadata from ENHANCED CSV (GST%, Cost Price) with default 5% GST
+            if (enhancedResult.productMetadata && enhancedResult.productMetadata.length > 0) {
+              console.log(`Applying ${enhancedResult.productMetadata.length} product metadata records from ENHANCED CSV processor`);
+              for (const metadata of enhancedResult.productMetadata) {
                 try {
-                  if (metadata.gstPercent !== undefined) {
-                    await storage.updateProductGst(metadata.sku, metadata.gstPercent, metadata.productName);
-                  }
+                  // Default to 5% GST if not specified (based on real file analysis)
+                  const gstToApply = metadata.gstPercent !== undefined ? metadata.gstPercent : 5;
+                  await storage.updateProductGst(metadata.sku, gstToApply, metadata.productName);
+                  
                   if (metadata.costPrice !== undefined) {
                     await storage.updateProduct(metadata.sku, { costPrice: metadata.costPrice.toString() });
                   }
@@ -549,9 +551,9 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
               }
             }
             
-            console.log(`Processed ${legacyResult.orders.length} orders with payment data`);
+            console.log(`Processed ${enhancedResult.orders.length} orders with exact column mapping and payment data`);
           } catch (error) {
-            console.error('Legacy order processing error (non-blocking):', error);
+            console.error('Enhanced CSV processing error (non-blocking):', error);
           }
         }
       }
@@ -559,20 +561,21 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
       await storage.updateUploadStatus(uploadId, 'processed', recordsProcessed, dynamicResult.errors);
       
     } else if (fileType === 'payment_zip') {
-      // Use ZIP processing method for ZIP files containing XLSX
-      result = await FileProcessor.processPaymentsZIP(buffer);
+      // Use ENHANCED ZIP processing method for 42-column XLSX files
+      const { ZIPProcessor } = await import('./services/zipProcessor');
+      result = await ZIPProcessor.processPaymentZIP(buffer);
       if (result.payments) {
         await storage.bulkCreatePayments(result.payments);
         
         // CRITICAL: Update orders with payment data after processing payments
         await updateOrdersWithPaymentData(result.payments);
         
-        // Process additional GST data extracted from ZIP files
+        // Process additional GST data extracted from ENHANCED ZIP files (exact 42-column mapping)
         if (result.productGstData && result.productGstData.length > 0) {
-          console.log(`Updating ${result.productGstData.length} products with GST data from ZIP`);
+          console.log(`Updating ${result.productGstData.length} products with GST data from ENHANCED ZIP processor`);
           for (const gstData of result.productGstData) {
             try {
-              console.log(`Attempting to update GST for SKU: "${gstData.sku}" with ${gstData.gstPercent}% GST`);
+              console.log(`Attempting to update GST for SKU: "${gstData.sku}" with ${gstData.gstPercent}% GST (from column 7)`);
               const updated = await storage.updateProductGst(gstData.sku, gstData.gstPercent, gstData.productName);
               if (updated) {
                 console.log(`✓ Successfully updated GST for SKU: "${gstData.sku}" to ${gstData.gstPercent}%`);
