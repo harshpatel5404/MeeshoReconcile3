@@ -14,31 +14,98 @@ const upload = multer({
   },
 });
 
+// Payment status calculation based on order status and settlement amount
+function calculatePaymentStatus(orderStatus: string, settlementAmount: number = 0): string {
+  const normalizedStatus = orderStatus.trim();
+  
+  if (normalizedStatus === 'Cancelled') {
+    return 'N/A';
+  } else if (normalizedStatus === 'Delivered') {
+    if (settlementAmount > 0) {
+      return 'Paid';
+    } else {
+      return 'N/A';
+    }
+  } else if (normalizedStatus === 'RTO') {
+    return 'Unpaid/Zero';
+  } else if (normalizedStatus === 'Return') {
+    if (settlementAmount < 0) {
+      return 'Refunded';
+    } else {
+      return 'N/A';
+    }
+  } else {
+    return 'N/A';
+  }
+}
+
+// Map order status from database to standard order status
+function normalizeOrderStatus(reasonForCredit: string): string {
+  if (!reasonForCredit) return 'Unknown';
+  
+  const reason = reasonForCredit.toUpperCase().trim();
+  
+  switch (reason) {
+    case 'DELIVERED':
+      return 'Delivered';
+    case 'CANCELLED':
+    case 'CANCELED':
+      return 'Cancelled';
+    case 'RTO_COMPLETE':
+    case 'RTO_LOCKED':
+    case 'RTO_OFD':
+      return 'RTO';
+    case 'RETURN':
+    case 'RETURNED':
+      return 'Return';
+    default:
+      return 'Unknown';
+  }
+}
+
 // Helper function to update orders with payment data after processing payments
 async function updateOrdersWithPaymentData(payments: any[]) {
   try {
     console.log(`Updating ${payments.length} orders with payment data...`);
     
     for (const payment of payments) {
-      if (payment.subOrderNo && payment.settlementDate) {
-        // Determine payment status based on settlement amount (handle both string and number)
-        let paymentStatus = 'PAID';
-        const amount = typeof payment.settlementAmount === 'string' 
-          ? parseFloat(payment.settlementAmount) 
-          : typeof payment.settlementAmount === 'number' 
-          ? payment.settlementAmount 
-          : 0;
+      if (payment.subOrderNo) {
+        let paymentStatus = 'N/A'; // Default status
         
-        if (amount <= 0) {
-          paymentStatus = 'REFUNDED';
+        // Get the order to check its status
+        const order = await storage.getOrderBySubOrderNo(payment.subOrderNo);
+        if (order && order.reasonForCredit) {
+          const normalizedOrderStatus = normalizeOrderStatus(order.reasonForCredit);
+          
+          // Properly sanitize settlement amount to handle currency symbols and commas
+          let settlementAmount = 0;
+          if (payment.settlementAmount != null) {
+            if (typeof payment.settlementAmount === 'number') {
+              settlementAmount = payment.settlementAmount;
+            } else if (typeof payment.settlementAmount === 'string') {
+              // Remove currency symbols (₹, $, €, £) and commas, then parse
+              const cleaned = payment.settlementAmount.replace(/[₹$€£,\s]/g, '').trim();
+              const parsed = parseFloat(cleaned);
+              settlementAmount = Number.isFinite(parsed) ? parsed : 0;
+            }
+          }
+          
+          // Calculate payment status based on order status and settlement amount
+          paymentStatus = calculatePaymentStatus(normalizedOrderStatus, settlementAmount);
         }
         
         try {
           // Update the order with payment date and status from settlement data
-          await storage.updateOrderWithPaymentData(payment.subOrderNo, {
-            paymentDate: payment.settlementDate,
+          const updateData: any = {
             paymentStatus: paymentStatus
-          });
+          };
+          
+          // Only set payment date if it's available
+          if (payment.settlementDate) {
+            updateData.paymentDate = payment.settlementDate;
+          }
+          
+          await storage.updateOrderWithPaymentData(payment.subOrderNo, updateData);
         } catch (error) {
           console.error(`Error updating order ${payment.subOrderNo} with payment data:`, error);
         }

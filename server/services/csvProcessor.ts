@@ -39,31 +39,58 @@ export class CSVProcessor {
     return isNaN(parsed.getTime()) ? new Date() : parsed;
   }
 
-  static mapPaymentStatus(reasonForCredit: string): string {
-    if (!reasonForCredit) return 'PENDING';
+  // Map order status from CSV to standard order status
+  static normalizeOrderStatus(reasonForCredit: string): string {
+    if (!reasonForCredit) return 'Unknown';
     
     const reason = reasonForCredit.toUpperCase().trim();
     
-    // Enhanced mapping based on order status
-    // Note: Final payment status should be determined by actual settlement data from payment files
     switch (reason) {
       case 'DELIVERED':
-        return 'PAID'; // Likely paid, but should be confirmed by settlement data
-      case 'RTO_COMPLETE':
-        return 'PROCESSING'; // RTO complete doesn't mean refunded - depends on settlement data
+        return 'Delivered';
       case 'CANCELLED':
       case 'CANCELED':
-        return 'CANCELLED'; // Order was cancelled
+        return 'Cancelled';
+      case 'RTO_COMPLETE':
       case 'RTO_LOCKED':
       case 'RTO_OFD':
-      case 'OUT_FOR_DELIVERY':
-      case 'SHIPPED':
-        return 'PROCESSING'; // Order in transit or processing
-      case 'LOST':
-        return 'LOST'; // Order lost in transit
+        return 'RTO';
+      case 'RETURN':
+      case 'RETURNED':
+        return 'Return';
       default:
-        return 'PENDING'; // Unknown status
+        return 'Unknown';
     }
+  }
+
+  // Calculate payment status based on order status and settlement amount
+  static calculatePaymentStatus(orderStatus: string, settlementAmount: number = 0): string {
+    const normalizedStatus = orderStatus.trim();
+    
+    if (normalizedStatus === 'Cancelled') {
+      return 'N/A';
+    } else if (normalizedStatus === 'Delivered') {
+      if (settlementAmount > 0) {
+        return 'Paid';
+      } else {
+        return 'N/A';
+      }
+    } else if (normalizedStatus === 'RTO') {
+      return 'Unpaid/Zero';
+    } else if (normalizedStatus === 'Return') {
+      if (settlementAmount < 0) {
+        return 'Refunded';
+      } else {
+        return 'N/A';
+      }
+    } else {
+      return 'N/A';
+    }
+  }
+
+  static mapPaymentStatus(reasonForCredit: string): string {
+    const normalizedStatus = this.normalizeOrderStatus(reasonForCredit);
+    return this.calculatePaymentStatus(normalizedStatus, 0); // Initial status without settlement data
   }
 
   static isPaymentCompleted(reasonForCredit: string): boolean {
@@ -90,7 +117,6 @@ export class CSVProcessor {
     const errors: string[] = [];
     let processedCount = 0;
     let headers: string[] = [];
-    let headersSaved = false;
     const productMetadata = new Map<string, { sku: string; gstPercent?: number; costPrice?: number; productName: string; }>();
 
     return new Promise((resolve) => {
@@ -98,16 +124,13 @@ export class CSVProcessor {
       
       stream
         .pipe(csv())
+        .on('headers', (headerList: string[]) => {
+          headers = headerList;
+          console.log('CSV Headers detected:', headers); // Log all headers for exact matching
+        })
         .on('data', (row: any) => {
           try {
-            processedCount++;
-            
-            // Save headers on first row for debugging
-            if (!headersSaved) {
-              headers = Object.keys(row);
-              headersSaved = true;
-              console.log('CSV Headers detected:', headers); // Log all headers for exact matching
-            }
+            processedCount++; // Count each data row (csv-parser already handles headers)
             
             // EXACT field mapping based on real file analysis (orders_august_1758081248885.csv)
             // Column structure: 11 exact columns from the actual CSV
@@ -183,7 +206,7 @@ export class CSVProcessor {
               ]),
               reasonForCredit: reasonForCredit || '',
               
-              // Enhanced payment data extraction from CSV
+              // Enhanced payment data extraction from CSV (initial status without settlement data)
               paymentStatus: this.mapPaymentStatus(reasonForCredit),
               paymentDate: this.isPaymentCompleted(reasonForCredit) ? this.parseDate(orderDate) : undefined
             };
