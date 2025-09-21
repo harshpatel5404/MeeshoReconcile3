@@ -89,8 +89,28 @@ export default function Orders() {
     }
   };
 
-  const getPaymentStatusBadge = (paymentStatus?: string, hasPayment?: boolean, settlementAmount?: number, paymentDate?: string) => {
-    // Use enhanced payment status from orders table first, then fallback to legacy logic
+  const getPaymentStatusBadge = (paymentStatus?: string, hasPayment?: boolean, settlementAmount?: number, paymentDate?: string, orderStatus?: string) => {
+    // Enhanced logic based on actual payment data instead of just order status
+    
+    // 1. If we have actual payment/settlement data, use that
+    if (hasPayment && typeof settlementAmount === 'number' && isFinite(settlementAmount)) {
+      if (settlementAmount > 0) {
+        return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Paid</Badge>;
+      } else if (settlementAmount === 0) {
+        // Zero settlement could be RTO with full refund or cancelled with no charge
+        return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Refunded</Badge>;
+      } else {
+        // Negative settlement (rare case)
+        return <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">Adjustment</Badge>;
+      }
+    }
+    
+    // 2. If payment date exists but no settlement amount, it's processing
+    if (paymentDate && hasPayment) {
+      return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">Processing</Badge>;
+    }
+    
+    // 3. Use enhanced payment status from orders table if available
     if (paymentStatus) {
       switch (paymentStatus.toUpperCase()) {
         case 'PAID':
@@ -108,21 +128,17 @@ export default function Orders() {
       }
     }
     
-    // Fallback to legacy logic for backward compatibility
-    if (typeof settlementAmount === 'number' && isFinite(settlementAmount)) {
-      return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Settled</Badge>;
-    } else if (hasPayment || paymentDate) {
-      return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">Processing</Badge>;
-    } else {
-      return <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">Pending</Badge>;
-    }
+    // 4. Fallback: No payment data available
+    return <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200">Pending</Badge>;
   };
 
   const formatCurrency = (amount: string | number) => {
-    return new Intl.NumberFormat('en-IN', {
+    const formatted = new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
     }).format(Number(amount));
+    // Ensure single line display by replacing any line breaks
+    return formatted.replace(/\s*\n\s*/g, ' ');
   };
 
   const calculateGrossProfitLoss = (settlementAmount?: number, costPrice?: number, packagingCost?: number, quantity = 1) => {
@@ -136,14 +152,16 @@ export default function Orders() {
       };
     }
 
-    const totalCost = ((costPrice || 0) + (packagingCost || 0)) * quantity;
-    const grossPL = settlementAmount - totalCost;
+    // Ecommerce Gross P/L = Revenue (Settlement) - COGS (Cost of Goods Sold)
+    // COGS = (Product Cost + Packaging Cost) × Quantity  
+    const totalCOGS = ((costPrice || 0) + (packagingCost || 0)) * quantity;
+    const grossPL = settlementAmount - totalCOGS;
     
     return {
       amount: grossPL,
       isProfit: grossPL >= 0,
       formatted: formatCurrency(grossPL),
-      note: totalCost > 0 ? null : 'No cost data'
+      note: totalCOGS > 0 ? null : 'No cost data'
     };
   };
 
@@ -304,69 +322,61 @@ export default function Orders() {
                       );
                       
                       return (
-                        <tr key={order.id} className="hover:bg-muted/50" data-testid={`row-order-${order.subOrderNo}`}>
+                        <tr key={`${order.subOrderNo}-${index}`} className="hover:bg-muted/50" data-testid={`row-order-${order.subOrderNo}`}>
                           <td className="px-4 py-3 text-sm">{index + 1}</td>
                           <td className="px-4 py-3 text-sm font-mono">{order.sku}</td>
                           <td className="px-4 py-3 text-sm font-mono">{order.subOrderNo}</td>
                           <td className="px-4 py-3 text-sm">{order.quantity}</td>
                           <td className="px-4 py-3 text-sm">
-                            {new Date(order.orderDate).toLocaleDateString()}
+                            {new Date(order.orderDate).toLocaleDateString('en-IN', { 
+                              year: 'numeric', 
+                              month: '2-digit', 
+                              day: '2-digit' 
+                            })}
                           </td>
                           <td className="px-4 py-3 text-sm">
-                            {order.paymentDate ? new Date(order.paymentDate).toLocaleDateString() : '-'}
+                            {order.paymentDate ? new Date(order.paymentDate).toLocaleDateString('en-IN', { 
+                              year: 'numeric', 
+                              month: '2-digit', 
+                              day: '2-digit' 
+                            }) : 
+                             order.settlementDate ? new Date(order.settlementDate).toLocaleDateString('en-IN', { 
+                              year: 'numeric', 
+                              month: '2-digit', 
+                              day: '2-digit' 
+                            }) : '-'}
                           </td>
                           <td className="px-4 py-3 text-sm">{formatCurrency(order.listedPrice)}</td>
                           <td className="px-4 py-3 text-sm font-medium">
                             {typeof settlementAmount === 'number' && isFinite(settlementAmount) ? (
-                              <div className="flex flex-col">
-                                <span className={`font-semibold ${
-                                  settlementAmount > 0 ? "text-green-600" : 
-                                  settlementAmount === 0 ? "text-yellow-600" : 
-                                  "text-red-600"
-                                }`}>
-                                  {formatCurrency(settlementAmount)}
-                                </span>
-                                {order.hasPayment && (
-                                  <span className="text-xs text-green-500">✓ Settled</span>
-                                )}
-                              </div>
+                              <span className={`font-semibold ${
+                                settlementAmount > 0 ? "text-green-600" : 
+                                settlementAmount === 0 ? "text-yellow-600" : 
+                                "text-red-600"
+                              }`}>
+                                {formatCurrency(settlementAmount)}
+                              </span>
                             ) : (
-                              <div className="flex flex-col">
-                                <span className="text-gray-500">-</span>
-                                <span className="text-xs text-orange-500">No payment data</span>
-                              </div>
+                              <span className="text-gray-500">-</span>
                             )}
                           </td>
                           <td className="px-4 py-3 text-sm">
-                            <div className="flex flex-col">
-                              <span>{costPrice > 0 ? formatCurrency(costPrice) : '-'}</span>
-                              {packagingCost > 0 && (
-                                <span className="text-xs text-muted-foreground">+₹{packagingCost.toFixed(2)} pkg</span>
-                              )}
-                            </div>
+                            <span>{costPrice > 0 ? formatCurrency(costPrice) : '-'}</span>
                           </td>
                           <td className="px-4 py-3 text-sm">
                             {profitLoss.amount !== null ? (
-                              <div className="flex flex-col">
-                                <span className={`font-medium ${profitLoss.isProfit ? 'text-green-600' : 'text-red-600'}`}>
-                                  {profitLoss.formatted}
-                                </span>
-                                {profitLoss.note && (
-                                  <span className="text-xs text-gray-400">{profitLoss.note}</span>
-                                )}
-                              </div>
+                              <span className={`font-medium whitespace-nowrap ${profitLoss.isProfit ? 'text-green-600' : 'text-red-600'}`}>
+                                {profitLoss.formatted}
+                              </span>
                             ) : (
-                              <div className="flex flex-col">
-                                <span className="text-gray-500">-</span>
-                                <span className="text-xs text-orange-500">Incomplete data</span>
-                              </div>
+                              <span className="text-gray-500">-</span>
                             )}
                           </td>
                           <td className="px-4 py-3">
                             {getStatusBadge(order.reasonForCredit || 'PENDING')}
                           </td>
                           <td className="px-4 py-3">
-                            {getPaymentStatusBadge(order.paymentStatus, order.hasPayment || false, settlementAmount, order.paymentDate)}
+                            {getPaymentStatusBadge(order.paymentStatus, order.hasPayment || false, settlementAmount, order.paymentDate, order.reasonForCredit)}
                           </td>
                         </tr>
                       );

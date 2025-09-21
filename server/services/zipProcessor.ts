@@ -238,11 +238,11 @@ export class ZIPProcessor {
             subOrderNo,
             settlementAmount: settlementAmount.toString(),
             settlementDate,
-            orderValue: totalSaleIndex !== -1 ? this.sanitizeNumericField(row[totalSaleIndex]).toString() : '',
-            commissionFee: '', // Will be calculated from commission columns if needed
-            fixedFee: '', // Will be calculated from fee columns if needed
-            paymentGatewayFee: '', // Will be calculated from gateway fee columns if needed
-            adsFee: '' // Will be calculated from ads fee columns if needed
+            orderValue: totalSaleIndex !== -1 ? this.sanitizeNumericField(row[totalSaleIndex]).toString() : '0',
+            commissionFee: '0', // Default to 0 instead of empty string
+            fixedFee: '0', // Default to 0 instead of empty string
+            paymentGatewayFee: '0', // Default to 0 instead of empty string
+            adsFee: '0' // Default to 0 instead of empty string
           };
 
           payments.push(payment);

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, decimal, integer, timestamp, boolean, json } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, decimal, integer, timestamp, boolean, json, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -53,6 +53,10 @@ export const payments = pgTable("payments", {
   paymentGatewayFee: decimal("payment_gateway_fee", { precision: 10, scale: 2 }),
   adsFee: decimal("ads_fee", { precision: 10, scale: 2 }).default("0"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniquePayment: unique().on(table.subOrderNo, table.settlementDate),
+  };
 });
 
 export const reconciliations = pgTable("reconciliations", {
@@ -97,6 +101,10 @@ export const productsDynamic = pgTable("products_dynamic", {
   sku: text("sku").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniqueProductUpload: unique().on(table.sku, table.uploadId),
+  };
 });
 
 // Enhanced orders table to support dynamic columns  
@@ -107,6 +115,10 @@ export const ordersDynamic = pgTable("orders_dynamic", {
   subOrderNo: text("sub_order_no").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniqueOrderUpload: unique().on(table.subOrderNo, table.uploadId),
+  };
 });
 
 // Real-time calculation cache

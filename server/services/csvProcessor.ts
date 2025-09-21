@@ -44,21 +44,25 @@ export class CSVProcessor {
     
     const reason = reasonForCredit.toUpperCase().trim();
     
-    // Exact mapping based on actual file analysis
-    // Status distribution: DELIVERED (60%), RTO_COMPLETE (25%), CANCELLED (10%), RTO_LOCKED (3%), RTO_OFD (2%)
+    // Enhanced mapping based on order status
+    // Note: Final payment status should be determined by actual settlement data from payment files
     switch (reason) {
       case 'DELIVERED':
-        return 'PAID';
+        return 'PAID'; // Likely paid, but should be confirmed by settlement data
       case 'RTO_COMPLETE':
-        return 'REFUNDED';
+        return 'PROCESSING'; // RTO complete doesn't mean refunded - depends on settlement data
       case 'CANCELLED':
       case 'CANCELED':
-        return 'CANCELLED';
+        return 'CANCELLED'; // Order was cancelled
       case 'RTO_LOCKED':
       case 'RTO_OFD':
-        return 'PROCESSING';
+      case 'OUT_FOR_DELIVERY':
+      case 'SHIPPED':
+        return 'PROCESSING'; // Order in transit or processing
+      case 'LOST':
+        return 'LOST'; // Order lost in transit
       default:
-        return 'PENDING';
+        return 'PENDING'; // Unknown status
     }
   }
 

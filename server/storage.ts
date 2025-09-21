@@ -163,6 +163,36 @@ export interface OrderStatusData {
 
 
 export class DatabaseStorage implements IStorage {
+  // Helper function to normalize decimal fields for database insertion
+  private normalizeDecimal(value: any): string {
+    if (value === null || value === undefined || value === '' || value === 'null') {
+      return '0';
+    }
+    if (typeof value === 'number') {
+      return value.toString();
+    }
+    if (typeof value === 'string') {
+      const cleaned = value.trim();
+      if (cleaned === '' || isNaN(Number(cleaned))) {
+        return '0';
+      }
+      return cleaned;
+    }
+    return '0';
+  }
+
+  // Normalize payment object before database insertion
+  private normalizePayment(payment: InsertPayment): InsertPayment {
+    return {
+      ...payment,
+      settlementAmount: this.normalizeDecimal(payment.settlementAmount),
+      orderValue: this.normalizeDecimal(payment.orderValue),
+      commissionFee: this.normalizeDecimal(payment.commissionFee),
+      fixedFee: this.normalizeDecimal(payment.fixedFee),
+      paymentGatewayFee: this.normalizeDecimal(payment.paymentGatewayFee),
+      adsFee: this.normalizeDecimal(payment.adsFee),
+    };
+  }
   async getUserByFirebaseUid(firebaseUid: string): Promise<User | undefined> {
     const result = await db.select().from(users).where(eq(users.firebaseUid, firebaseUid)).limit(1);
     return result[0];
@@ -476,7 +506,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPayment(payment: InsertPayment): Promise<Payment> {
-    const result = await db.insert(payments).values(payment).returning();
+    const normalizedPayment = this.normalizePayment(payment);
+    const result = await db.insert(payments).values(normalizedPayment).returning();
     return result[0];
   }
 
@@ -484,11 +515,14 @@ export class DatabaseStorage implements IStorage {
     if (paymentList.length === 0) return [];
     
     try {
-      // Use ON CONFLICT to handle duplicates gracefully
+      // Normalize all payments before insertion to prevent numeric field errors
+      const normalizedPayments = paymentList.map(payment => this.normalizePayment(payment));
+      
+      // Use ON CONFLICT with specific target to handle duplicates gracefully
       return await db
         .insert(payments)
-        .values(paymentList)
-        .onConflictDoNothing()
+        .values(normalizedPayments)
+        .onConflictDoNothing({ target: [payments.subOrderNo, payments.settlementDate] })
         .returning();
     } catch (error) {
       console.error('Error during bulk payment creation:', error);
