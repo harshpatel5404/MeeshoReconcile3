@@ -41,13 +41,13 @@ export interface IStorage {
   updateUser(id: string, user: Partial<InsertUser>): Promise<User | undefined>;
 
   // Products (Legacy)
-  getAllProducts(): Promise<Product[]>;
-  getProductBySku(sku: string): Promise<Product | undefined>;
+  getAllProducts(userId?: string): Promise<Product[]>;
+  getProductBySku(sku: string, userId?: string): Promise<Product | undefined>;
   createProduct(product: InsertProduct): Promise<Product>;
-  updateProduct(sku: string, product: Partial<InsertProduct>): Promise<Product | undefined>;
+  updateProduct(sku: string, product: Partial<InsertProduct>, userId?: string): Promise<Product | undefined>;
   bulkCreateProducts(products: InsertProduct[]): Promise<Product[]>;
   bulkUpsertProducts(products: InsertProduct[]): Promise<Product[]>;
-  updateProductGst(sku: string, gstPercent: number, productName?: string): Promise<Product | undefined>;
+  updateProductGst(sku: string, gstPercent: number, productName?: string, userId?: string): Promise<Product | undefined>;
 
   // Dynamic Products
   getAllProductsDynamic(): Promise<ProductDynamic[]>;
@@ -212,11 +212,18 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async getAllProducts(): Promise<Product[]> {
+  async getAllProducts(userId?: string): Promise<Product[]> {
+    if (userId) {
+      return db.select().from(products).where(eq(products.userId, userId)).orderBy(asc(products.sku));
+    }
     return db.select().from(products).orderBy(asc(products.sku));
   }
 
-  async getProductBySku(sku: string): Promise<Product | undefined> {
+  async getProductBySku(sku: string, userId?: string): Promise<Product | undefined> {
+    if (userId) {
+      const result = await db.select().from(products).where(and(eq(products.sku, sku), eq(products.userId, userId))).limit(1);
+      return result[0];
+    }
     const result = await db.select().from(products).where(eq(products.sku, sku)).limit(1);
     return result[0];
   }
@@ -226,7 +233,14 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async updateProduct(sku: string, product: Partial<InsertProduct>): Promise<Product | undefined> {
+  async updateProduct(sku: string, product: Partial<InsertProduct>, userId?: string): Promise<Product | undefined> {
+    if (userId) {
+      const result = await db.update(products).set({
+        ...product,
+        updatedAt: new Date()
+      }).where(and(eq(products.sku, sku), eq(products.userId, userId))).returning();
+      return result[0];
+    }
     const result = await db.update(products).set({
       ...product,
       updatedAt: new Date()
@@ -254,12 +268,12 @@ export class DatabaseStorage implements IStorage {
     if (productList.length === 0) return [];
     
     try {
-      // Use ON CONFLICT to handle duplicates with upsert logic (for unique products)
+      // Use ON CONFLICT to handle duplicates with upsert logic (for unique products per user)
       return await db
         .insert(products)
         .values(productList)
         .onConflictDoUpdate({
-          target: products.sku,
+          target: [products.userId, products.sku], // Use the new unique constraint
           set: {
             title: sql.raw('excluded.title'),
             costPrice: sql.raw('excluded.cost_price'),
@@ -277,7 +291,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async updateProductGst(sku: string, gstPercent: number, productName?: string): Promise<Product | undefined> {
+  async updateProductGst(sku: string, gstPercent: number, productName?: string, userId?: string): Promise<Product | undefined> {
     try {
       const updateData: any = { 
         gstPercent: gstPercent.toString(),
@@ -289,15 +303,18 @@ export class DatabaseStorage implements IStorage {
         updateData.title = productName;
       }
       
+      // Build where condition based on userId
+      const whereCondition = userId ? and(eq(products.sku, sku), eq(products.userId, userId)) : eq(products.sku, sku);
+      
       // First try exact match
       let result = await db
         .update(products)
         .set(updateData)
-        .where(eq(products.sku, sku))
+        .where(whereCondition)
         .returning();
       
-      // If no exact match, try flexible matching
-      if (result.length === 0) {
+      // If no exact match and no userId filter, try flexible matching
+      if (result.length === 0 && !userId) {
         // Try case-insensitive match
         result = await db
           .update(products)

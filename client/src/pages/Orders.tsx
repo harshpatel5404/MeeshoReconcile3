@@ -35,14 +35,14 @@ export default function Orders() {
   const queryClient = useQueryClient();
 
   const { data: orders, isLoading } = useAuthQuery<any[]>({
-    queryKey: ['/api/orders', Object.keys(filters).length > 0 ? `?${new URLSearchParams(filters as Record<string, string>).toString()}` : ''],
+    queryKey: ['/api/orders-dynamic', Object.keys(filters).length > 0 ? `?${new URLSearchParams(filters as Record<string, string>).toString()}` : ''],
   });
 
   const apiRequest = useAuthApiRequest();
   
 
   const handleApplyFilters = () => {
-    queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/orders-dynamic'] });
   };
 
   const handleClearFilters = () => {
@@ -53,7 +53,7 @@ export default function Orders() {
       dateFrom: '',
       dateTo: '',
     });
-    queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/orders-dynamic'] });
   };
 
   const handleExportOrders = () => {

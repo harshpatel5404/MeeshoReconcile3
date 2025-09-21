@@ -14,7 +14,8 @@ export const users = pgTable("users", {
 
 export const products = pgTable("products", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  sku: text("sku").notNull().unique(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  sku: text("sku").notNull(),
   title: text("title").notNull(),
   costPrice: decimal("cost_price", { precision: 10, scale: 2 }).default("0"),
   packagingCost: decimal("packaging_cost", { precision: 10, scale: 2 }).default("0"),
@@ -22,6 +23,10 @@ export const products = pgTable("products", {
   gstPercent: decimal("gst_percent", { precision: 5, scale: 2 }).default("5"),
   totalOrders: integer("total_orders").default(0),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniqueUserSku: unique().on(table.userId, table.sku),
+  };
 });
 
 export const orders = pgTable("orders", {

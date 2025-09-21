@@ -328,9 +328,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/orders-dynamic', authenticateUser, async (req: Request, res: Response) => {
     try {
+      const userId = (req as any).user?.id;
       const orders = await storage.getAllOrdersDynamic();
-      res.json(orders);
+      
+      // Get all payments to merge with orders
+      const payments = await storage.getAllPayments();
+      const paymentMap = new Map();
+      payments.forEach(payment => {
+        paymentMap.set(payment.subOrderNo, payment);
+      });
+      
+      // Get user-specific products to merge cost data
+      const products = await storage.getAllProducts(userId);
+      const productMap = new Map();
+      products.forEach(product => {
+        productMap.set(product.sku, product);
+      });
+      
+      // Merge orders with payment and product data
+      const ordersWithPayments = orders.map(order => {
+        const payment = paymentMap.get(order.subOrderNo);
+        const orderData = order.dynamicData || {};
+        const sku = orderData['SKU'] || orderData.sku || '';
+        const product = productMap.get(sku);
+        
+        // Determine payment status based on order status and settlement amount
+        let paymentStatus = 'Unpaid';
+        if (payment) {
+          const settlementAmount = parseFloat(payment.settlementAmount || '0');
+          const orderStatus = orderData['Reason for Credit Entry'] || orderData.reasonForCredit || '';
+          
+          if (orderStatus === 'DELIVERED' && settlementAmount > 0) {
+            paymentStatus = 'Paid';
+          } else if (orderStatus === 'RTO_COMPLETE' || orderStatus === 'CANCELLED') {
+            paymentStatus = settlementAmount < 0 ? 'Refunded' : 'Cancelled';
+          } else if (orderStatus === 'RTO_LOCKED' || orderStatus === 'RTO_OFD') {
+            paymentStatus = 'Processing';
+          } else {
+            paymentStatus = 'Unpaid';
+          }
+        }
+        
+        return {
+          ...order,
+          // Payment data from ZIP file
+          paymentDate: payment?.settlement_date || null,
+          settlementAmount: payment?.settlement_amount || null,
+          settlementDate: payment?.settlement_date || null,
+          hasPayment: !!payment,
+          paymentStatus: paymentStatus,
+          // Additional payment details
+          orderValue: payment?.order_value || null,
+          commissionFee: payment?.commission_fee || null,
+          fixedFee: payment?.fixed_fee || null,
+          paymentGatewayFee: payment?.payment_gateway_fee || null,
+          adsFee: payment?.ads_fee || null,
+          // Product cost data
+          costPrice: product?.cost_price || '0',
+          packagingCost: product?.packaging_cost || '0',
+          finalPrice: product?.final_price || '0',
+          gstPercent: product?.gst_percent || 5
+        };
+      });
+      
+      res.json(ordersWithPayments);
     } catch (error) {
+      console.error('Failed to fetch dynamic orders:', error);
       res.status(500).json({ message: 'Failed to fetch dynamic orders' });
     }
   });
@@ -401,7 +464,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Process file asynchronously
-      processFileAsync(uploadRecord.id, req.file.buffer, fileType, gstPercent);
+      processFileAsync(uploadRecord.id, req.file.buffer, fileType, gstPercent, req.user?.dbId);
 
       res.json({ uploadId: uploadRecord.id, status: 'processing' });
     } catch (error) {
@@ -440,19 +503,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Products routes
   app.get('/api/products', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const products = await storage.getAllProducts();
+      const userId = (req as any).user?.id;
+      const products = await storage.getAllProducts(userId);
       res.json(products);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch products' });
     }
   });
 
+  app.post('/api/products', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).user?.id;
+      const productData = insertProductSchema.parse({ ...req.body, userId });
+      
+      const product = await storage.createProduct(productData);
+      res.status(201).json(product);
+    } catch (error) {
+      console.error('Failed to create product:', error);
+      res.status(500).json({ message: 'Failed to create product' });
+    }
+  });
+
   app.put('/api/products/:sku', authenticateUser, async (req: Request, res: Response) => {
     try {
       const { sku } = req.params;
+      const userId = (req as any).user?.id;
       const updateData = insertProductSchema.partial().parse(req.body);
       
-      const product = await storage.updateProduct(sku, updateData);
+      const product = await storage.updateProduct(sku, updateData, userId);
       if (!product) {
         return res.status(404).json({ message: 'Product not found' });
       }
@@ -466,14 +544,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/products/bulk-update', authenticateUser, async (req: Request, res: Response) => {
     try {
       const { field, value } = req.body;
+      const userId = (req as any).user?.id;
       
       if (!['packagingCost', 'gstPercent', 'costPrice'].includes(field)) {
         return res.status(400).json({ message: 'Invalid field' });
       }
 
-      const products = await storage.getAllProducts();
+      const products = await storage.getAllProducts(userId);
       const updates = products.map(product => 
-        storage.updateProduct(product.sku, { [field]: value.toString() })
+        storage.updateProduct(product.sku, { [field]: value.toString() }, userId)
       );
       
       await Promise.all(updates);
@@ -485,8 +564,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/products/update-all-costs', authenticateUser, async (req: Request, res: Response) => {
     try {
-      // Get all products
-      const products = await storage.getAllProducts();
+      const userId = (req as any).user?.id;
+      // Get all products for the user
+      const products = await storage.getAllProducts(userId);
       
       // For each product, recalculate and persist final price based on cost + packaging
       const updates = products.map(async (product) => {
@@ -553,7 +633,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 }
 
 // Async file processing
-async function processFileAsync(uploadId: string, buffer: Buffer, fileType: string, gstPercent?: string) {
+async function processFileAsync(uploadId: string, buffer: Buffer, fileType: string, gstPercent?: string, userId?: string) {
   try {
     let result;
     let recordsProcessed = 0;
@@ -573,15 +653,26 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
         // Replace all existing orders for this upload (data overwrite)
         await storage.replaceAllOrdersDynamic(uploadId, ordersDynamic);
         
-        // Extract and replace products from the order data
+        // Extract and save products from the order data with userId
         const productsDynamic = await FileProcessor.extractProductsFromOrdersDynamic(
           dynamicResult.data, 
           uploadId, 
           gstPercent || '18'
         );
         
-        if (productsDynamic.length > 0) {
-          await storage.addUniqueProductsDynamic(uploadId, productsDynamic);
+        if (productsDynamic.length > 0 && userId) {
+          // Convert dynamic products to regular products with userId
+          const productsToSave = productsDynamic.map(product => ({
+            userId,
+            sku: product.sku,
+            title: product.title || product.sku,
+            costPrice: product.costPrice || '0',
+            packagingCost: product.packagingCost || '0',
+            gstPercent: product.gstPercent || '5'
+          }));
+          
+          // Use bulk upsert to merge based on unique SKU per user
+          await storage.bulkUpsertProducts(productsToSave);
         }
 
         // Save file structure metadata
@@ -612,16 +703,16 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
             await FileProcessor.extractProductsFromOrders(enhancedResult.orders, gstPercent || '5');
             
             // Apply product metadata from ENHANCED CSV (GST%, Cost Price) with default 5% GST
-            if (enhancedResult.productMetadata && enhancedResult.productMetadata.length > 0) {
+            if (enhancedResult.productMetadata && enhancedResult.productMetadata.length > 0 && userId) {
               console.log(`Applying ${enhancedResult.productMetadata.length} product metadata records from ENHANCED CSV processor`);
               for (const metadata of enhancedResult.productMetadata) {
                 try {
                   // Default to 5% GST if not specified (based on real file analysis)
                   const gstToApply = metadata.gstPercent !== undefined ? metadata.gstPercent : 5;
-                  await storage.updateProductGst(metadata.sku, gstToApply, metadata.productName);
+                  await storage.updateProductGst(metadata.sku, gstToApply, metadata.productName, userId);
                   
                   if (metadata.costPrice !== undefined) {
-                    await storage.updateProduct(metadata.sku, { costPrice: metadata.costPrice.toString() });
+                    await storage.updateProduct(metadata.sku, { costPrice: metadata.costPrice.toString() }, userId);
                   }
                 } catch (error) {
                   console.warn(`Failed to update metadata for product ${metadata.sku}:`, error);
@@ -654,7 +745,7 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
           for (const gstData of result.productGstData) {
             try {
               console.log(`Attempting to update GST for SKU: "${gstData.sku}" with ${gstData.gstPercent}% GST (from column 7)`);
-              const updated = await storage.updateProductGst(gstData.sku, gstData.gstPercent, gstData.productName);
+              const updated = await storage.updateProductGst(gstData.sku, gstData.gstPercent, gstData.productName, userId);
               if (updated) {
                 console.log(`✓ Successfully updated GST for SKU: "${gstData.sku}" to ${gstData.gstPercent}%`);
               } else {
@@ -702,7 +793,7 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
       // Handle product files dynamically
       const dynamicResult = await FileProcessor.processGenericCSV(buffer, uploadId, 'SKU');
       
-      if (dynamicResult.data && dynamicResult.data.length > 0) {
+      if (dynamicResult.data && dynamicResult.data.length > 0 && userId) {
         const productsDynamic = dynamicResult.data.map(row => ({
           uploadId,
           dynamicData: row,
@@ -711,6 +802,19 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
 
         // Replace all existing products for this upload
         await storage.replaceAllProductsDynamic(uploadId, productsDynamic);
+        
+        // Also save to regular products table with userId for future usage
+        const productsToSave = dynamicResult.data.map(row => ({
+          userId,
+          sku: row['SKU'] || row['sku'] || '',
+          title: row['Product Name'] || row['Title'] || row['Name'] || row['SKU'] || row['sku'] || '',
+          costPrice: row['Cost Price'] || row['Cost'] || '0',
+          packagingCost: row['Packaging Cost'] || row['Packaging'] || '0',
+          gstPercent: row['GST %'] || row['GST'] || '5'
+        }));
+        
+        // Use bulk upsert to merge based on unique SKU per user
+        await storage.bulkUpsertProducts(productsToSave);
         
         // Save file structure metadata
         await storage.saveFileStructure(uploadId, dynamicResult.fileStructure);
@@ -723,7 +827,7 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
         // Trigger real-time calculation update
         await storage.recalculateAllMetrics(uploadId);
         
-        console.log(`Processed ${recordsProcessed} products dynamically`);
+        console.log(`Processed ${recordsProcessed} products dynamically and saved to user products`);
       }
 
       await storage.updateUploadStatus(uploadId, 'processed', recordsProcessed, dynamicResult.errors);

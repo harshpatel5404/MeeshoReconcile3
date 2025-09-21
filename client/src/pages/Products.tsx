@@ -39,6 +39,7 @@ export default function Products() {
     }
   }, [productsArray]);
 
+
   const updateProductMutation = useMutation({
     mutationFn: async ({ sku, data }: { sku: string; data: any }) => {
       return apiRequest('PUT', `/api/products/${sku}`, data);
@@ -132,6 +133,7 @@ export default function Products() {
     // Round to 2 decimals
     return Math.round(finalPrice * 100) / 100;
   };
+
 
 
   const handleBulkSetCost = () => {
