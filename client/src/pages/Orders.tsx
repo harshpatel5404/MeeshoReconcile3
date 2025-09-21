@@ -141,7 +141,7 @@ export default function Orders() {
     return formatted.replace(/\s*\n\s*/g, ' ');
   };
 
-  const calculateGrossProfitLoss = (settlementAmount?: number, costPrice?: number, packagingCost?: number, quantity = 1) => {
+  const calculateGrossProfitLoss = (settlementAmount?: number, costPrice?: number, packagingCost?: number, quantity = 1, orderStatus?: string) => {
     // Calculate if we have finite settlement data from payment file (including 0 and negative)
     if (typeof settlementAmount !== 'number' || !isFinite(settlementAmount)) {
       return {
@@ -152,16 +152,28 @@ export default function Orders() {
       };
     }
 
+    // Check if order status is RTO or RETURNED - exclude product cost for these statuses
+    const isRtoOrReturned = orderStatus && (
+      orderStatus.toUpperCase() === 'RTO_COMPLETE' ||
+      orderStatus.toUpperCase() === 'RTO COMPLETE' ||
+      orderStatus.toUpperCase() === 'RETURN' ||
+      orderStatus.toUpperCase() === 'RETURNED'
+    );
+
     // Ecommerce Gross P/L = Revenue (Settlement) - COGS (Cost of Goods Sold)
-    // COGS = (Product Cost + Packaging Cost) × Quantity  
-    const totalCOGS = ((costPrice || 0) + (packagingCost || 0)) * quantity;
+    // For RTO/RETURNED orders: Only include packaging cost, exclude product cost
+    // For normal orders: Include both product cost and packaging cost
+    const totalCOGS = isRtoOrReturned 
+      ? (packagingCost || 0) * quantity  // Only packaging cost for RTO/RETURNED
+      : ((costPrice || 0) + (packagingCost || 0)) * quantity;  // Full COGS for others
+    
     const grossPL = settlementAmount - totalCOGS;
     
     return {
       amount: grossPL,
       isProfit: grossPL >= 0,
       formatted: formatCurrency(grossPL),
-      note: totalCOGS > 0 ? null : 'No cost data'
+      note: totalCOGS > 0 ? null : isRtoOrReturned ? 'RTO/Return - Cost excluded' : 'No cost data'
     };
   };
 
@@ -318,7 +330,8 @@ export default function Orders() {
                         settlementAmount,
                         costPrice,
                         packagingCost,
-                        quantity
+                        quantity,
+                        order.reasonForCredit
                       );
                       
                       return (

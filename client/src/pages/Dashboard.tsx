@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuthQuery } from '@/hooks/use-auth-query';
+import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,6 +10,8 @@ import OrderStatusChart from '@/components/charts/OrderStatusChart';
 import DailyVolumeChart from '@/components/charts/DailyVolumeChart';
 import TopProductsChart from '@/components/charts/TopProductsChart';
 import TopReturnsChart from '@/components/charts/TopReturnsChart';
+import { useToast } from '@/hooks/use-toast';
+import { queryClient } from '@/lib/queryClient';
 import { 
   DollarSign, 
   TrendingUp, 
@@ -24,7 +27,8 @@ import {
   Activity,
   BarChart,
   Database,
-  Zap
+  Zap,
+  RefreshCw
 } from 'lucide-react';
 
 import type { 
@@ -35,6 +39,9 @@ import type {
 } from '@shared/schema';
 
 export default function Dashboard() {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { toast } = useToast();
+  const { token } = useAuth();
 
   const { data: summary, isLoading: summaryLoading } = useAuthQuery<ComprehensiveFinancialSummary>({
     queryKey: ['/api/dashboard/comprehensive-summary'],
@@ -53,6 +60,63 @@ export default function Dashboard() {
   });
 
   const isLoading = summaryLoading || settlementLoading || earningsLoading || costsLoading;
+
+  const handleRefreshData = async () => {
+    if (!token) {
+      toast({
+        title: "Authentication Error",
+        description: "Please log in again to refresh data.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsRefreshing(true);
+    try {
+      // Call the recalculate API endpoint
+      const response = await fetch('/api/dashboard/recalculate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          toast({
+            title: "Session Expired",
+            description: "Please log in again to refresh data.",
+            variant: "destructive",
+          });
+          // Handle auth failure - could add logout logic here if needed
+          return;
+        }
+        throw new Error('Failed to refresh data');
+      }
+
+      // Invalidate all dashboard queries to force refetch
+      await queryClient.invalidateQueries({ 
+        predicate: (query) => 
+          typeof query.queryKey[0] === 'string' && 
+          query.queryKey[0].startsWith('/api/dashboard')
+      });
+
+      toast({
+        title: "Data Refreshed",
+        description: "Dashboard data has been updated with the latest processed files.",
+      });
+    } catch (error) {
+      console.error('Refresh error:', error);
+      toast({
+        title: "Refresh Failed", 
+        description: "Failed to refresh dashboard data. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -182,6 +246,27 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-100">
       <Header title="Dashboard" subtitle="Financial Analytics & Insights" />
+      
+      {/* Refresh Button Section */}
+      <div className="px-6 py-4 border-b border-border/50 bg-white/50 backdrop-blur-sm">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Database className="w-4 h-4" />
+            <span>Data from processed files (Orders CSV + Payment ZIP)</span>
+          </div>
+          <Button 
+            onClick={handleRefreshData} 
+            disabled={isRefreshing}
+            variant="outline" 
+            size="sm"
+            className="flex items-center gap-2 hover:bg-primary hover:text-primary-foreground transition-colors"
+            data-testid="button-refresh-dashboard"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+          </Button>
+        </div>
+      </div>
       
       <div className="flex-1 p-6">
         <div className="space-y-6">
