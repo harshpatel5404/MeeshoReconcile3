@@ -674,20 +674,20 @@ export class DatabaseStorage implements IStorage {
     // Get monthly revenue and profit data for the last 12 months from dynamic data (uploaded files)
     const monthlyData = await db
       .select({
-        month: sql<string>`TO_CHAR(CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE), 'Mon')`,
-        monthNum: sql<number>`EXTRACT(MONTH FROM CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE))`,
-        yearNum: sql<number>`EXTRACT(YEAR FROM CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE))`,
-        revenue: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'discountedPrice' AS DECIMAL))`,
+        month: sql<string>`TO_CHAR(CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE), 'Mon')`,
+        monthNum: sql<number>`EXTRACT(MONTH FROM CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`,
+        yearNum: sql<number>`EXTRACT(YEAR FROM CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`,
+        revenue: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL))`,
         totalOrders: count(ordersDynamic.id)
       })
       .from(ordersDynamic)
       .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true) 
-                 AND CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE) >= CURRENT_DATE - INTERVAL '12 months'`)
-      .groupBy(sql`EXTRACT(MONTH FROM CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE))`, 
-               sql`EXTRACT(YEAR FROM CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE))`, 
-               sql`TO_CHAR(CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE), 'Mon')`)
-      .orderBy(sql`EXTRACT(YEAR FROM CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE))`, 
-               sql`EXTRACT(MONTH FROM CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE))`);
+                 AND CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE) >= CURRENT_DATE - INTERVAL '12 months'`)
+      .groupBy(sql`EXTRACT(MONTH FROM CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`, 
+               sql`EXTRACT(YEAR FROM CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`, 
+               sql`TO_CHAR(CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE), 'Mon')`)
+      .orderBy(sql`EXTRACT(YEAR FROM CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`, 
+               sql`EXTRACT(MONTH FROM CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`);
 
     // Get corresponding payment data for profit calculation - only from current upload orders
     const monthlyPayments = await db
@@ -727,34 +727,31 @@ export class DatabaseStorage implements IStorage {
     // Get order status distribution from dynamic data (uploaded files)
     const statusData = await db
       .select({
-        status: sql<string>`${ordersDynamic.dynamicData}->>'reasonForCredit'`,
+        status: sql<string>`${ordersDynamic.dynamicData}->>'Reason for Credit Entry'`,
         count: count(ordersDynamic.id)
       })
       .from(ordersDynamic)
       .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`)
-      .groupBy(sql`${ordersDynamic.dynamicData}->>'reasonForCredit'`);
+      .groupBy(sql`${ordersDynamic.dynamicData}->>'Reason for Credit Entry'`);
 
-    // Map status names to display names and colors
-    const statusMapping: Record<string, { name: string; color: string }> = {
-      'Delivered': { name: 'Delivered', color: 'hsl(147 78% 42%)' },
-      'RTO Complete': { name: 'RTO Complete', color: 'hsl(0 84% 60%)' },
-      'Cancelled': { name: 'Cancelled', color: 'hsl(45 93% 47%)' },
-      'Return/Refund Completed': { name: 'Returned', color: 'hsl(220 94% 82%)' },
-      'Lost': { name: 'Lost', color: 'hsl(324 73% 52%)' }
+     const statusMapping: Record<string, { name: string; color: string }> = {
+      'DELIVERED': { name: 'Delivered', color: 'hsl(147 78% 42%)' },
+      'SHIPPED': { name: 'Shipped', color: 'hsl(217 91% 60%)' },
+      'READY_TO_SHIP': { name: 'Ready to Ship', color: 'hsl(204 100% 40%)' },
+      'CANCELLED': { name: 'Cancelled', color: 'hsl(45 93% 47%)' },
+      'RTO_COMPLETE': { name: 'RTO Complete', color: 'hsl(0 84% 60%)' },
+      'RTO_LOCKED': { name: 'RTO Locked', color: 'hsl(12 76% 61%)' },
+      'PENDING': { name: 'Pending', color: 'hsl(250 100% 60%)' }
     };
 
     return statusData.map(item => {
-      // Normalize status for consistent mapping (handle case variations)
       const statusValue = item.status || 'Unknown';
-      const normalizedStatus = statusValue.toLowerCase().trim();
-      const mappingKey = Object.keys(statusMapping).find(key => 
-        key.toLowerCase() === normalizedStatus
-      ) || statusValue;
+      const mapping = statusMapping[statusValue];
       
       return {
-        name: statusMapping[mappingKey]?.name || statusValue,
+        name: mapping?.name || statusValue,
         value: item.count,
-        color: statusMapping[mappingKey]?.color || 'hsl(215 28% 52%)'
+        color: mapping?.color || 'hsl(215 28% 52%)'
       };
     });
   }
@@ -969,15 +966,15 @@ export class DatabaseStorage implements IStorage {
   async getDailyVolumeAndAOV(): Promise<DailyVolumeData[]> {
     const dailyData = await db
       .select({
-        date: sql<string>`DATE(CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE))`,
+        date: sql<string>`DATE(CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`,
         orderVolume: count(ordersDynamic.id),
-        totalRevenue: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'discountedPrice' AS DECIMAL))`,
+        totalRevenue: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL))`,
       })
       .from(ordersDynamic)
       .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true) 
-                 AND CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE) >= CURRENT_DATE - INTERVAL '30 days'`)
-      .groupBy(sql`DATE(CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE))`)
-      .orderBy(sql`DATE(CAST(${ordersDynamic.dynamicData}->>'orderDate' AS DATE))`);
+                 AND CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE) >= CURRENT_DATE - INTERVAL '30 days'`)
+      .groupBy(sql`DATE(CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`)
+      .orderBy(sql`DATE(CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`);
 
     return dailyData.map(day => ({
       date: day.date,
@@ -989,16 +986,16 @@ export class DatabaseStorage implements IStorage {
   async getTopPerformingProducts(): Promise<TopProductsData[]> {
     const topProducts = await db
       .select({
-        sku: sql<string>`${ordersDynamic.dynamicData}->>'sku'`,
-        name: sql<string>`${ordersDynamic.dynamicData}->>'productName'`,
+        sku: sql<string>`${ordersDynamic.dynamicData}->>'SKU'`,
+        name: sql<string>`${ordersDynamic.dynamicData}->>'Product Name'`,
         orders: count(ordersDynamic.id),
-        totalSales: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'discountedPrice' AS DECIMAL) * CAST(${ordersDynamic.dynamicData}->>'quantity' AS INTEGER))`,
-        totalQuantity: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'quantity' AS INTEGER))`,
+        totalSales: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL) * CAST(${ordersDynamic.dynamicData}->>'Quantity' AS INTEGER))`,
+        totalQuantity: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Quantity' AS INTEGER))`,
       })
       .from(ordersDynamic)
       .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`)
-      .groupBy(sql`${ordersDynamic.dynamicData}->>'sku'`, sql`${ordersDynamic.dynamicData}->>'productName'`)
-      .orderBy(desc(sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'discountedPrice' AS DECIMAL) * CAST(${ordersDynamic.dynamicData}->>'quantity' AS INTEGER))`))
+      .groupBy(sql`${ordersDynamic.dynamicData}->>'SKU'`, sql`${ordersDynamic.dynamicData}->>'Product Name'`)
+      .orderBy(desc(sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL) * CAST(${ordersDynamic.dynamicData}->>'Quantity' AS INTEGER))`))
       .limit(10);
 
     return topProducts.map(product => ({
@@ -1013,16 +1010,17 @@ export class DatabaseStorage implements IStorage {
   async getTopReturnProducts(): Promise<TopReturnsData[]> {
     const topReturns = await db
       .select({
-        sku: orders.sku,
-        name: orders.productName,
-        returns: sql<number>`count(case when ${orders.reasonForCredit} = 'Return/Refund Completed' then 1 end)`,
-        rtoCount: sql<number>`count(case when ${orders.reasonForCredit} = 'RTO Complete' then 1 end)`,
-        totalCount: count(orders.id),
+        sku: sql<string>`${ordersDynamic.dynamicData}->>'SKU'`,
+        name: sql<string>`${ordersDynamic.dynamicData}->>'Product Name'`,
+        returns: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RETURN', 'RETURNED', 'REFUND') then 1 end)`,
+        rtoCount: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RTO', 'RTO_COMPLETE', 'RTO_LOCKED') then 1 end)`,
+        totalCount: count(ordersDynamic.id),
       })
-      .from(orders)
-      .groupBy(orders.sku, orders.productName)
-      .having(sql`count(case when ${orders.reasonForCredit} IN ('Return/Refund Completed', 'RTO Complete') then 1 end) > 0`)
-      .orderBy(sql`count(case when ${orders.reasonForCredit} IN ('Return/Refund Completed', 'RTO Complete') then 1 end) DESC`)
+      .from(ordersDynamic)
+      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`)
+      .groupBy(sql`${ordersDynamic.dynamicData}->>'SKU'`, sql`${ordersDynamic.dynamicData}->>'Product Name'`)
+      .having(sql`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RETURN', 'RETURNED', 'REFUND', 'RTO', 'RTO_COMPLETE', 'RTO_LOCKED') then 1 end) > 0`)
+      .orderBy(sql`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RETURN', 'RETURNED', 'REFUND', 'RTO', 'RTO_COMPLETE', 'RTO_LOCKED') then 1 end) DESC`)
       .limit(10);
 
     return topReturns.map(product => ({
