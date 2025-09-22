@@ -38,6 +38,7 @@ export default function TopProductsChart() {
             type="number"
             className="text-xs"
             tick={{ fontSize: 12 }}
+            tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`}
           />
           <YAxis 
             type="category"
@@ -47,16 +48,34 @@ export default function TopProductsChart() {
             width={120}
           />
           <Tooltip 
-            formatter={(value: number) => [`${value} orders`, 'Orders']}
+            formatter={(value: number, name: string) => {
+              if (name === 'Revenue') {
+                return [`₹${value.toLocaleString()}`, 'Total Revenue'];
+              }
+              return [value, name];
+            }}
             labelFormatter={(label) => {
               const item = chartFormattedData.find(d => d.displayName === label);
-              return `Product: ${item?.name || label}`;
+              return `${item?.name || label} (${item?.sku})`;
+            }}
+            contentStyle={{
+              backgroundColor: 'hsl(var(--background))',
+              border: '1px solid hsl(var(--border))',
+              borderRadius: '6px',
+              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+              padding: '8px 12px'
+            }}
+            labelStyle={{
+              color: 'hsl(var(--foreground))',
+              fontWeight: '500',
+              marginBottom: '4px'
             }}
           />
           <Bar 
-            dataKey="orders" 
+            dataKey="revenue" 
             fill="hsl(147 78% 42%)"
             radius={[0, 4, 4, 0]}
+            name="Revenue"
           />
         </BarChart>
       </ResponsiveContainer>

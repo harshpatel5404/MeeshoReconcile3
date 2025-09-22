@@ -154,9 +154,9 @@ export interface DashboardSummary {
 }
 
 export interface RevenueTrendData {
-  month: string;
+  date: string;
   revenue: number;
-  profit: number;
+  orders: number;
 }
 
 export interface OrderStatusData {
@@ -692,56 +692,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRevenueTrend(): Promise<RevenueTrendData[]> {
-    // Get monthly revenue and profit data for the last 12 months from dynamic data (uploaded files)
-    const monthlyData = await db
+    // Get daily revenue and order count data for the last 30 days from dynamic data (uploaded files)
+    const dailyData = await db
       .select({
-        month: sql<string>`TO_CHAR(CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE), 'Mon')`,
-        monthNum: sql<number>`EXTRACT(MONTH FROM CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`,
-        yearNum: sql<number>`EXTRACT(YEAR FROM CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`,
+        date: sql<string>`CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE)`,
         revenue: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL))`,
-        totalOrders: count(ordersDynamic.id)
+        orders: count(ordersDynamic.id)
       })
       .from(ordersDynamic)
       .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true) 
-                 AND CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE) >= CURRENT_DATE - INTERVAL '12 months'`)
-      .groupBy(sql`EXTRACT(MONTH FROM CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`, 
-               sql`EXTRACT(YEAR FROM CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`, 
-               sql`TO_CHAR(CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE), 'Mon')`)
-      .orderBy(sql`EXTRACT(YEAR FROM CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`, 
-               sql`EXTRACT(MONTH FROM CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`);
+                 AND CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE) >= CURRENT_DATE - INTERVAL '30 days'`)
+      .groupBy(sql`CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE)`)
+      .orderBy(sql`CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE)`);
 
-    // Get corresponding payment data for profit calculation - only from current upload orders
-    const monthlyPayments = await db
-      .select({
-        monthNum: sql<number>`EXTRACT(MONTH FROM ${payments.settlementDate})`,
-        yearNum: sql<number>`EXTRACT(YEAR FROM ${payments.settlementDate})`,
-        settlements: sum(payments.settlementAmount),
-        fees: sql<number>`SUM(COALESCE(${payments.commissionFee}, 0) + COALESCE(${payments.paymentGatewayFee}, 0))`
-      })
-      .from(payments)
-      .where(sql`${payments.settlementDate} >= CURRENT_DATE - INTERVAL '12 months' 
-                 AND ${payments.subOrderNo} IN (
-                   SELECT DISTINCT ${ordersDynamic.dynamicData}->>'subOrderNo' 
-                   FROM ${ordersDynamic} 
-                   WHERE ${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)
-                 )`)
-      .groupBy(sql`EXTRACT(MONTH FROM ${payments.settlementDate})`, sql`EXTRACT(YEAR FROM ${payments.settlementDate})`);
-
-    // Combine data to calculate profit
-    return monthlyData.map(monthData => {
-      const payment = monthlyPayments.find(p => 
-        p.monthNum === monthData.monthNum && p.yearNum === monthData.yearNum
-      );
-      const settlements = Number(payment?.settlements || 0);
-      const fees = Number(payment?.fees || 0);
-      const profit = settlements - fees;
-
-      return {
-        month: monthData.month,
-        revenue: Number(monthData.revenue || 0),
-        profit: Math.max(0, profit) // Ensure profit is not negative for display
-      };
-    });
+    // Return daily data in the expected format
+    return dailyData.map(dayData => ({
+      date: dayData.date,
+      revenue: Number(dayData.revenue || 0),
+      orders: Number(dayData.orders || 0)
+    }));
   }
 
   async getOrderStatusDistribution(): Promise<OrderStatusData[]> {

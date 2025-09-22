@@ -47,24 +47,34 @@ export default function TopReturnsChart() {
             width={120}
           />
           <Tooltip 
-            formatter={(value: number, name: string) => [
-              `${value}`,
-              name === 'returns' ? 'Returns' : name === 'rtoCount' ? 'RTOs' : 'Combined'
-            ]}
+            formatter={(value: number, name: string) => {
+              if (name === 'Combined Returns/RTOs') {
+                return [`${value}`, 'Total Returns & RTOs'];
+              }
+              return [value, name];
+            }}
             labelFormatter={(label) => {
               const item = chartFormattedData.find(d => d.displayName === label);
-              return `Product: ${item?.name || label}`;
+              return `${item?.name || label} (${item?.sku})`;
+            }}
+            contentStyle={{
+              backgroundColor: 'hsl(var(--background))',
+              border: '1px solid hsl(var(--border))',
+              borderRadius: '6px',
+              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+              padding: '8px 12px'
+            }}
+            labelStyle={{
+              color: 'hsl(var(--foreground))',
+              fontWeight: '500',
+              marginBottom: '4px'
             }}
           />
           <Bar 
-            dataKey="returns" 
+            dataKey="combinedCount" 
             fill="hsl(0 84% 60%)"
-            radius={[0, 2, 2, 0]}
-          />
-          <Bar 
-            dataKey="rtoCount" 
-            fill="hsl(45 93% 47%)"
-            radius={[0, 2, 2, 0]}
+            radius={[0, 4, 4, 0]}
+            name="Combined Returns/RTOs"
           />
         </BarChart>
       </ResponsiveContainer>

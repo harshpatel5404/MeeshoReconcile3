@@ -1,10 +1,10 @@
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { useAuthQuery } from '@/hooks/use-auth-query';
 
 interface RevenueTrendData {
-  month: string;
+  date: string;
   revenue: number;
-  profit: number;
+  orders: number;
 }
 
 export default function RevenueChart() {
@@ -31,40 +31,82 @@ export default function RevenueChart() {
   return (
     <div className="h-64">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData}>
+        <AreaChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
           <XAxis 
-            dataKey="month" 
+            dataKey="date" 
             className="text-xs"
             tick={{ fontSize: 12 }}
+            tickFormatter={(value) => {
+              const date = new Date(value);
+              return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }}
           />
           <YAxis 
+            yAxisId="revenue"
+            orientation="left"
             className="text-xs"
             tick={{ fontSize: 12 }}
             tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`}
           />
-          <Tooltip 
-            formatter={(value: number, name: string) => [
-              `₹${value.toLocaleString()}`, 
-              name === 'revenue' ? 'Revenue' : 'Profit'
-            ]}
-            labelFormatter={(label) => `Month: ${label}`}
+          <YAxis 
+            yAxisId="orders"
+            orientation="right"
+            className="text-xs"
+            tick={{ fontSize: 12 }}
+            tickFormatter={(value) => `${value}`}
           />
-          <Line 
+          <Tooltip 
+            formatter={(value: number, name: string) => {
+              if (name === 'Revenue') {
+                return [`₹${value.toLocaleString()}`, 'Daily Revenue'];
+              } else if (name === 'Orders') {
+                return [`${value}`, 'Total Orders'];
+              }
+              return [value, name];
+            }}
+            labelFormatter={(label) => {
+              const date = new Date(label);
+              return date.toLocaleDateString('en-US', { 
+                weekday: 'short', 
+                month: 'short', 
+                day: 'numeric',
+                year: 'numeric'
+              });
+            }}
+            contentStyle={{
+              backgroundColor: 'hsl(var(--background))',
+              border: '1px solid hsl(var(--border))',
+              borderRadius: '6px',
+              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+              padding: '8px 12px'
+            }}
+            labelStyle={{
+              color: 'hsl(var(--foreground))',
+              fontWeight: '500',
+              marginBottom: '4px'
+            }}
+          />
+          <Legend />
+          <Area 
+            yAxisId="revenue"
             type="monotone" 
             dataKey="revenue" 
             stroke="hsl(214 100% 59%)" 
+            fill="hsl(214 100% 59% / 0.3)"
             strokeWidth={2}
-            dot={{ fill: 'hsl(214 100% 59%)', strokeWidth: 2, r: 4 }}
+            name="Revenue"
           />
-          <Line 
+          <Area 
+            yAxisId="orders"
             type="monotone" 
-            dataKey="profit" 
+            dataKey="orders" 
             stroke="hsl(147 78% 42%)" 
+            fill="hsl(147 78% 42% / 0.3)"
             strokeWidth={2}
-            dot={{ fill: 'hsl(147 78% 42%)', strokeWidth: 2, r: 4 }}
+            name="Orders"
           />
-        </LineChart>
+        </AreaChart>
       </ResponsiveContainer>
     </div>
   );
