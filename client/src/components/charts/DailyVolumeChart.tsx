@@ -34,7 +34,9 @@ export default function DailyVolumeChart() {
             tick={{ fontSize: 12 }}
             tickFormatter={(value) => {
               const date = new Date(value);
-              return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              const day = String(date.getDate()).padStart(2, '0');
+              const month = String(date.getMonth() + 1).padStart(2, '0');
+              return `${day}/${month}`;
             }}
           />
           <YAxis 
@@ -70,14 +72,14 @@ export default function DailyVolumeChart() {
               });
             }}
             contentStyle={{
-              backgroundColor: 'hsl(var(--background))',
-              border: '1px solid hsl(var(--border))',
+              backgroundColor: 'white',
+              border: '1px solid #e2e8f0',
               borderRadius: '6px',
               boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
               padding: '8px 12px'
             }}
             labelStyle={{
-              color: 'hsl(var(--foreground))',
+              color: '#1e293b',
               fontWeight: '500',
               marginBottom: '4px'
             }}

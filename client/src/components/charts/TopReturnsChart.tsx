@@ -32,19 +32,21 @@ export default function TopReturnsChart() {
   return (
     <div className="h-64">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartFormattedData} layout="horizontal">
+        <BarChart data={chartFormattedData}>
           <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
           <XAxis 
-            type="number"
-            className="text-xs"
-            tick={{ fontSize: 12 }}
-          />
-          <YAxis 
             type="category"
             dataKey="displayName"
             className="text-xs"
             tick={{ fontSize: 10 }}
-            width={120}
+            angle={-45}
+            textAnchor="end"
+            height={80}
+          />
+          <YAxis 
+            type="number"
+            className="text-xs"
+            tick={{ fontSize: 12 }}
           />
           <Tooltip 
             formatter={(value: number, name: string) => {
@@ -58,14 +60,17 @@ export default function TopReturnsChart() {
               return `${item?.name || label} (${item?.sku})`;
             }}
             contentStyle={{
-              backgroundColor: 'hsl(var(--background))',
-              border: '1px solid hsl(var(--border))',
+              backgroundColor: 'white',
+              border: '1px solid #e2e8f0',
               borderRadius: '6px',
               boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-              padding: '8px 12px'
+              padding: '8px 12px',
+              maxWidth: '300px',
+              whiteSpace: 'normal',
+              wordWrap: 'break-word'
             }}
             labelStyle={{
-              color: 'hsl(var(--foreground))',
+              color: '#1e293b',
               fontWeight: '500',
               marginBottom: '4px'
             }}
@@ -73,7 +78,7 @@ export default function TopReturnsChart() {
           <Bar 
             dataKey="combinedCount" 
             fill="hsl(0 84% 60%)"
-            radius={[0, 4, 4, 0]}
+            radius={[4, 4, 0, 0]}
             name="Combined Returns/RTOs"
           />
         </BarChart>
