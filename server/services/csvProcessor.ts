@@ -132,26 +132,25 @@ export class CSVProcessor {
           try {
             processedCount++; // Count each data row (csv-parser already handles headers)
             
-            // EXACT field mapping based on real file analysis (orders_august_1758081248885.csv)
-            // Column structure: 11 exact columns from the actual CSV
+            // Enhanced field mapping with aliases for different CSV formats
             const subOrderNo = this.getFieldValue(row, [
-              'Sub Order No' // Exact column name from real file
+              'Sub Order No', 'subOrderNo', 'sub_order_no', 'Sub Order ID'
             ]);
             
             const orderDate = this.getFieldValue(row, [
-              'Order Date' // Exact column name from real file
+              'Order Date', 'orderDate', 'order_date', 'OrderDate', 'ORDER_DATE', 'Date', 'Created Date'
             ]);
             
             const productName = this.getFieldValue(row, [
-              'Product Name' // Exact column name from real file
+              'Product Name', 'Item Name', 'Title', 'Product Title', 'Product', 'Item', 'Name'
             ]);
             
             const sku = this.getFieldValue(row, [
-              'SKU' // Exact column name from real file
+              'SKU', 'sku', 'Product SKU', 'Item SKU', 'Product Code', 'Item Code'
             ]);
             
             const reasonForCredit = this.getFieldValue(row, [
-              'Reason for Credit Entry' // Exact column name from real file
+              'Reason for Credit Entry', 'reasonForCredit', 'reason_for_credit', 'Status', 'Order Status', 'Payment Status', 'Credit Reason'
             ]);
 
             // Extract additional fields for enhanced mapping (GST %, Cost Price)
@@ -181,28 +180,28 @@ export class CSVProcessor {
               subOrderNo,
               orderDate: this.parseDate(orderDate),
               customerState: this.getFieldValue(row, [
-                'Customer State' // Exact column name from real file
+                'Customer State', 'customerState', 'customer_state', 'State', 'Buyer State', 'Delivery State'
               ]),
               productName,
               sku,
               size: this.getFieldValue(row, [
-                'Size' // Exact column name from real file
+                'Size', 'size', 'Product Size', 'Variant', 'SIZE', 'Item Size'
               ]) || 'Free Size',
               quantity: parseInt(this.getFieldValue(row, [
-                'Quantity' // Exact column name from real file
+                'Quantity', 'quantity', 'qty', 'Qty', 'QTY', 'Item Quantity', 'Order Quantity'
               ]) || '1') || 1,
               listedPrice: this.sanitizeNumericField(
                 this.getFieldValue(row, [
-                  'Supplier Listed Price (Incl. GST + Commission)' // Exact column name from real file
+                  'Supplier Listed Price (Incl. GST + Commission)', 'Listed Price', 'listedPrice', 'Sale Price', 'Supplier Listed Price', 'Sale Amount', 'Price', 'Listed Price (Incl. GST)', 'Original Price'
                 ])
               ).toString(),
               discountedPrice: this.sanitizeNumericField(
                 this.getFieldValue(row, [
-                  'Supplier Discounted Price (Incl GST and Commision)' // Exact column name from real file (note: has typo)
+                  'Supplier Discounted Price (Incl GST and Commision)', 'Discounted Price', 'discountedPrice', 'Final Sale Amount', 'Final Price', 'Net Price', 'Selling Price', 'Discounted Sale Price', 'Final Sale Price'
                 ])
               ).toString(),
               packetId: this.getFieldValue(row, [
-                'Packet Id' // Exact column name from real file
+                'Packet Id', 'packetId', 'packet_id', 'PacketID', 'PACKET_ID', 'Packet No', 'Package ID'
               ]),
               reasonForCredit: reasonForCredit || '',
               

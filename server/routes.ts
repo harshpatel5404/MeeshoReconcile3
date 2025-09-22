@@ -4,7 +4,7 @@ import multer from "multer";
 import { storage } from "./storage";
 import { verifyFirebaseToken } from "./services/firebase";
 import { FileProcessor } from "./services/fileProcessor";
-import { insertUserSchema, insertProductSchema } from "@shared/schema";
+import { insertUserSchema, insertProductSchema, OrderDynamic } from "@shared/schema";
 
 // Multer configuration for file uploads
 const upload = multer({
@@ -17,49 +17,50 @@ const upload = multer({
 // Payment status calculation based on order status and settlement amount
 function calculatePaymentStatus(orderStatus: string, settlementAmount: number = 0): string {
   const normalizedStatus = orderStatus.trim();
-  
-  if (normalizedStatus === 'Cancelled') {
-    return 'N/A';
-  } else if (normalizedStatus === 'Delivered') {
+
+  if (normalizedStatus === "Cancelled") {
+    return "N/A";
+  } else if (normalizedStatus === "Delivered") {
     if (settlementAmount > 0) {
-      return 'Paid';
+      return "Paid";
     } else {
-      return 'N/A';
+      return "N/A";
     }
-  } else if (normalizedStatus === 'RTO') {
-    return 'Unpaid/Zero';
-  } else if (normalizedStatus === 'Return') {
+  } else if (normalizedStatus === "RTO") {
+    return "Unpaid/Zero";
+  } else if (normalizedStatus === "Return") {
     if (settlementAmount < 0) {
-      return 'Refunded';
+      return "Refunded";
     } else {
-      return 'N/A';
+      return "N/A";
     }
   } else {
-    return 'N/A';
+    return "N/A";
   }
 }
 
 // Map order status from database to standard order status
 function normalizeOrderStatus(reasonForCredit: string): string {
-  if (!reasonForCredit) return 'Unknown';
-  
+  if (!reasonForCredit) return "Unknown";
+
   const reason = reasonForCredit.toUpperCase().trim();
-  
+
   switch (reason) {
-    case 'DELIVERED':
-      return 'Delivered';
-    case 'CANCELLED':
-    case 'CANCELED':
-      return 'Cancelled';
-    case 'RTO_COMPLETE':
-    case 'RTO_LOCKED':
-    case 'RTO_OFD':
-      return 'RTO';
-    case 'RETURN':
-    case 'RETURNED':
-      return 'Return';
+    case "DELIVERED":
+      return "Delivered";
+    case "CANCELLED":
+    case "CANCELED":
+      return "Cancelled";
+    case "RTO_COMPLETE":
+    case "RTO_LOCKED":
+    case "RTO_OFD":
+    case "RTO":
+      return "RTO";
+    case "RETURN":
+    case "RETURNED":
+      return "Return";
     default:
-      return 'Unknown';
+      return reason;
   }
 }
 
@@ -348,50 +349,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Merge orders with payment and product data
       const ordersWithPayments = orders.map(order => {
         const payment = paymentMap.get(order.subOrderNo);
-        const orderData = order.dynamicData || {};
-        const sku = orderData['SKU'] || orderData.sku || '';
-        const product = productMap.get(sku);
+        const orderData = (order as OrderDynamic).dynamicData as Record<string, any> || {};
         
-        // Determine payment status based on order status and settlement amount
-        let paymentStatus = 'Unpaid';
-        if (payment) {
-          const settlementAmount = parseFloat(payment.settlementAmount || '0');
-          const orderStatus = orderData['Reason for Credit Entry'] || orderData.reasonForCredit || '';
-          
-          if (orderStatus === 'DELIVERED' && settlementAmount > 0) {
-            paymentStatus = 'Paid';
-          } else if (orderStatus === 'RTO_COMPLETE' || orderStatus === 'CANCELLED') {
-            paymentStatus = settlementAmount < 0 ? 'Refunded' : 'Cancelled';
-          } else if (orderStatus === 'RTO_LOCKED' || orderStatus === 'RTO_OFD') {
-            paymentStatus = 'Processing';
-          } else {
-            paymentStatus = 'Unpaid';
+        // Normalize keys from dynamicData to handle variations in CSV headers
+        const normalizedOrderData: { [key: string]: any } = {};
+        for (const key in orderData) {
+          if (Object.prototype.hasOwnProperty.call(orderData, key)) {
+            normalizedOrderData[key.trim().toLowerCase()] = orderData[key];
           }
         }
         
+        const sku = normalizedOrderData['sku'] || '';
+        const product = productMap.get(sku);
+        
+        // Determine payment status based on order status and settlement amount
+        const settlementAmount = parseFloat(payment?.settlementAmount || '0');
+        const orderStatus = normalizedOrderData['reason for credit entry'] || 'Unknown';
+        const normalizedOrderStatus = normalizeOrderStatus(orderStatus);
+        const paymentStatus = calculatePaymentStatus(normalizedOrderStatus, settlementAmount);
+        
         return {
           ...order,
+          // Explicitly map required fields from normalized data
+          sku: sku,
+          quantity: normalizedOrderData['qty'] || '1',
+          orderDate: normalizedOrderData['order date'] || new Date().toISOString(),
+          listedPrice: normalizedOrderData['supplier listed price (incl. gst + commission)'] ||
+                       normalizedOrderData['listed price'] ||
+                       normalizedOrderData['listedprice'] ||
+                       normalizedOrderData['sale price'] ||
+                       normalizedOrderData['supplier listed price'] ||
+                       normalizedOrderData['sale amount'] ||
+                       normalizedOrderData['price'] ||
+                       normalizedOrderData['listed price (incl. gst)'] ||
+                       normalizedOrderData['original price'] || '0',
+          reasonForCredit: orderStatus,
+          
           // Payment data from ZIP file
-          paymentDate: payment?.settlement_date || null,
-          settlementAmount: payment?.settlement_amount || null,
-          settlementDate: payment?.settlement_date || null,
+          paymentDate: payment?.settlementDate || null,
+          settlementAmount: payment?.settlementAmount || null,
+          settlementDate: payment?.settlementDate || null,
           hasPayment: !!payment,
           paymentStatus: paymentStatus,
           // Additional payment details
-          orderValue: payment?.order_value || null,
-          commissionFee: payment?.commission_fee || null,
-          fixedFee: payment?.fixed_fee || null,
-          paymentGatewayFee: payment?.payment_gateway_fee || null,
-          adsFee: payment?.ads_fee || null,
+          orderValue: payment?.orderValue || null,
+          commissionFee: payment?.commissionFee || null,
+          fixedFee: payment?.fixedFee || null,
+          paymentGatewayFee: payment?.paymentGatewayFee || null,
+          adsFee: payment?.adsFee || null,
           // Product cost data
-          costPrice: product?.cost_price || '0',
-          packagingCost: product?.packaging_cost || '0',
-          finalPrice: product?.final_price || '0',
-          gstPercent: product?.gst_percent || 5
+          costPrice: product?.costPrice || '0',
+          packagingCost: product?.packagingCost || '0',
+          finalPrice: product?.finalPrice || '0',
+          gstPercent: product?.gstPercent || 5
         };
       });
       
-      res.json(ordersWithPayments);
+      // Filter orders based on query parameters
+      const { status, paymentStatus: paymentStatusFilter } = req.query;
+      let filteredOrders = ordersWithPayments;
+
+      if (status && status !== 'all') {
+        filteredOrders = filteredOrders.filter(order => normalizeOrderStatus(order.reasonForCredit) === status);
+      }
+
+      if (paymentStatusFilter && paymentStatusFilter !== 'all') {
+        filteredOrders = filteredOrders.filter(order => order.paymentStatus.toLowerCase() === (paymentStatusFilter as string).toLowerCase());
+      }
+
+      res.json(filteredOrders);
     } catch (error) {
       console.error('Failed to fetch dynamic orders:', error);
       res.status(500).json({ message: 'Failed to fetch dynamic orders' });
@@ -665,10 +691,10 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
           const productsToSave = productsDynamic.map(product => ({
             userId,
             sku: product.sku,
-            title: product.title || product.sku,
-            costPrice: product.costPrice || '0',
-            packagingCost: product.packagingCost || '0',
-            gstPercent: product.gstPercent || '5'
+            title: (product.dynamicData as any)?.['Product Name'] || product.sku,
+            costPrice: (product.dynamicData as any)?.['Cost Price'] || '0',
+            packagingCost: (product.dynamicData as any)?.['Packaging Cost'] || '0',
+            gstPercent: (product.dynamicData as any)?.['GST %'] || '5'
           }));
           
           // Use bulk upsert to merge based on unique SKU per user

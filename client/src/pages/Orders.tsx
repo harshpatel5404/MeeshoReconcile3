@@ -101,7 +101,7 @@ export default function Orders() {
         return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Refunded</Badge>;
       } else {
         // Negative settlement (rare case)
-        return <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">Adjustment</Badge>;
+        return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Refunded</Badge>;
       }
     }
     
@@ -333,6 +333,9 @@ export default function Orders() {
                         quantity,
                         order.reasonForCredit
                       );
+
+                      const isNegativeSettlement = typeof settlementAmount === 'number' && settlementAmount < 0;
+                      const orderStatus = isNegativeSettlement ? 'RETURN' : (order.reasonForCredit || 'PENDING');
                       
                       return (
                         <tr key={`${order.subOrderNo}-${index}`} className="hover:bg-muted/50" data-testid={`row-order-${order.subOrderNo}`}>
@@ -386,10 +389,10 @@ export default function Orders() {
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            {getStatusBadge(order.reasonForCredit || 'PENDING')}
+                            {getStatusBadge(orderStatus)}
                           </td>
                           <td className="px-4 py-3">
-                            {getPaymentStatusBadge(order.paymentStatus, order.hasPayment || false, settlementAmount, order.paymentDate, order.reasonForCredit)}
+                            {getPaymentStatusBadge(order.paymentStatus, order.hasPayment || false, settlementAmount, order.paymentDate, orderStatus)}
                           </td>
                         </tr>
                       );
