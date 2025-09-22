@@ -5,11 +5,14 @@ import {
   FileText, 
   Package, 
   Calculator,
-  LogOut
+  LogOut,
+  AlertTriangle
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { logOut } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { useAuthQuery } from '@/hooks/use-auth-query';
+import { Progress } from '@/components/ui/progress';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -23,6 +26,15 @@ export default function Sidebar() {
   const [location] = useLocation();
   const { user } = useAuth();
   const { toast } = useToast();
+
+  // Fetch usage data
+  const { data: usage } = useAuthQuery({
+    queryKey: ['/api/users/me/usage'],
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  // Type guard for usage data
+  const usageData = usage as { used: number; limit: number; periodStart: string; periodEnd: string } | undefined;
 
   const handleLogout = async () => {
     try {
@@ -105,6 +117,38 @@ export default function Sidebar() {
             </p>
           </div>
         </div>
+        
+        {/* Usage Limits */}
+        {usageData && typeof usageData.used === 'number' && typeof usageData.limit === 'number' && (
+          <div className="mb-3 p-3 bg-accent/50 rounded-md">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-muted-foreground">File Uploads</span>
+              <span className="text-xs text-muted-foreground">
+                {usageData.used}/{usageData.limit}
+              </span>
+            </div>
+            <Progress 
+              value={(usageData.used / usageData.limit) * 100} 
+              className="h-2 mb-2"
+            />
+            {usageData.used >= usageData.limit ? (
+              <div className="flex items-center gap-1 text-xs text-destructive">
+                <AlertTriangle className="w-3 h-3" />
+                <span>Limit reached</span>
+              </div>
+            ) : usageData.used >= usageData.limit * 0.8 ? (
+              <div className="flex items-center gap-1 text-xs text-orange-600">
+                <AlertTriangle className="w-3 h-3" />
+                <span>Approaching limit</span>
+              </div>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                {usageData.limit - usageData.used} uploads remaining
+              </span>
+            )}
+          </div>
+        )}
+        
         <button 
           onClick={handleLogout}
           className="w-full text-left text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"

@@ -329,7 +329,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/orders-dynamic', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).user?.id;
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
       const orders = await storage.getAllOrdersDynamic();
       
       // Get all payments to merge with orders
@@ -469,11 +472,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // User profile routes
+  app.get('/api/users/me', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+
+      // Get user info
+      const user = await storage.getUserByFirebaseUid(req.user?.uid || '');
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      // Get usage summary
+      const usage = await storage.getUsageSummary(userId);
+
+      res.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          photoURL: user.photoURL,
+          monthlyQuota: user.monthlyQuota,
+          createdAt: user.createdAt
+        },
+        usage
+      });
+    } catch (error) {
+      console.error('Failed to fetch user profile:', error);
+      res.status(500).json({ message: 'Failed to fetch user profile' });
+    }
+  });
+
+  app.get('/api/users/me/usage', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+
+      const usage = await storage.getUsageSummary(userId);
+      res.json(usage);
+    } catch (error) {
+      console.error('Failed to fetch usage summary:', error);
+      res.status(500).json({ message: 'Failed to fetch usage summary' });
+    }
+  });
+
   // Upload routes
   app.post('/api/upload', authenticateUser, upload.single('file'), async (req: Request, res: Response) => {
     try {
       if (!req.file) {
         return res.status(400).json({ message: 'No file uploaded' });
+      }
+
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+
+      // Check usage limits before processing
+      const usageSummary = await storage.getUsageSummary(userId);
+      if (usageSummary.used >= usageSummary.limit) {
+        const resetDate = new Date(usageSummary.periodEnd);
+        return res.status(429).json({ 
+          message: `Monthly upload limit reached. You have used ${usageSummary.used}/${usageSummary.limit} uploads this month.`,
+          used: usageSummary.used,
+          limit: usageSummary.limit,
+          resetAt: resetDate.toISOString()
+        });
       }
 
       const { fileType, sourceMonth, label, gstPercent } = req.body;
@@ -486,11 +555,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: 'processing',
         sourceMonth,
         label,
-        uploadedBy: req.user?.dbId || '',
+        uploadedBy: userId,
       });
 
       // Process file asynchronously
-      processFileAsync(uploadRecord.id, req.file.buffer, fileType, gstPercent, req.user?.dbId);
+      processFileAsync(uploadRecord.id, req.file.buffer, fileType, gstPercent, userId);
 
       res.json({ uploadId: uploadRecord.id, status: 'processing' });
     } catch (error) {
@@ -529,7 +598,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Products routes
   app.get('/api/products', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).user?.id;
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
       const products = await storage.getAllProducts(userId);
       res.json(products);
     } catch (error) {
@@ -539,7 +611,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/products', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).user?.id;
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
       const productData = insertProductSchema.parse({ ...req.body, userId });
       
       const product = await storage.createProduct(productData);
@@ -553,13 +628,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/products/:sku', authenticateUser, async (req: Request, res: Response) => {
     try {
       const { sku } = req.params;
-      const userId = (req as any).user?.id;
-      const updateData = insertProductSchema.partial().parse(req.body);
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      
+      // Only update fields that preserve user-set pricing data with proper validation
+      const allowedSchema = insertProductSchema.partial().pick({
+        costPrice: true,
+        packagingCost: true, 
+        gstPercent: true,
+        title: true
+      });
+      
+      const updateData = allowedSchema.parse(req.body);
       
       const product = await storage.updateProduct(sku, updateData, userId);
       if (!product) {
         return res.status(404).json({ message: 'Product not found' });
       }
+
+      // Recalculate dashboard metrics after product update
+      await storage.recalculateAllMetrics();
 
       res.json(product);
     } catch (error) {
@@ -570,18 +660,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/products/bulk-update', authenticateUser, async (req: Request, res: Response) => {
     try {
       const { field, value } = req.body;
-      const userId = (req as any).user?.id;
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
       
       if (!['packagingCost', 'gstPercent', 'costPrice'].includes(field)) {
         return res.status(400).json({ message: 'Invalid field' });
       }
 
       const products = await storage.getAllProducts(userId);
+      // Validate the update value based on field type
+      let validatedValue: string;
+      if (['costPrice', 'packagingCost', 'gstPercent'].includes(field)) {
+        const numValue = parseFloat(value);
+        if (isNaN(numValue)) {
+          return res.status(400).json({ message: 'Invalid numeric value' });
+        }
+        validatedValue = numValue.toString();
+      } else {
+        validatedValue = value.toString();
+      }
+
       const updates = products.map(product => 
-        storage.updateProduct(product.sku, { [field]: value.toString() }, userId)
+        storage.updateProduct(product.sku, { [field]: validatedValue }, userId)
       );
       
       await Promise.all(updates);
+      
+      // Recalculate dashboard metrics after bulk update
+      await storage.recalculateAllMetrics();
+      
       res.json({ message: 'Bulk update completed' });
     } catch (error) {
       res.status(500).json({ message: 'Bulk update failed' });
@@ -590,7 +699,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/products/update-all-costs', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).user?.id;
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
       // Get all products for the user
       const products = await storage.getAllProducts(userId);
       
@@ -600,10 +712,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const packagingCost = parseFloat(product.packagingCost || '0');
         const finalPrice = Math.round((costPrice + packagingCost) * 100) / 100;
         
-        // Update the product with the calculated final price
+        // Update the product with the calculated final price (user-scoped)
         return await storage.updateProduct(product.sku, { 
           finalPrice: finalPrice.toString() 
-        });
+        }, userId);
       });
       
       const updatedProducts = await Promise.all(updates);

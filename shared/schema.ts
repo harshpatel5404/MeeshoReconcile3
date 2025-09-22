@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, decimal, integer, timestamp, boolean, json, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, decimal, integer, timestamp, boolean, json, unique, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -9,6 +9,7 @@ export const users = pgTable("users", {
   email: text("email").notNull(),
   displayName: text("display_name"),
   photoURL: text("photo_url"),
+  monthlyQuota: integer("monthly_quota").default(10),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -26,6 +27,7 @@ export const products = pgTable("products", {
 }, (table) => {
   return {
     uniqueUserSku: unique().on(table.userId, table.sku),
+    userUpdatedAtIdx: index("products_user_updated_at_idx").on(table.userId, table.updatedAt),
   };
 });
 
@@ -96,6 +98,10 @@ export const uploads = pgTable("uploads", {
   isCurrentVersion: boolean("is_current_version").default(true),
   uploadedBy: varchar("uploaded_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uploadsUsageIdx: index("uploads_usage_idx").on(table.uploadedBy, table.createdAt),
+  };
 });
 
 // Enhanced products table to support dynamic columns

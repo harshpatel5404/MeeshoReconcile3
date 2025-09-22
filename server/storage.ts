@@ -1,6 +1,6 @@
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, desc, asc, sql, count, sum, and, or, like, gte, lte } from "drizzle-orm";
+import { eq, desc, asc, sql, count, sum, and, or, like, gte, lte, lt, inArray } from "drizzle-orm";
 import { 
   users, products, orders, payments, reconciliations, uploads,
   productsDynamic, ordersDynamic, calculationCache,
@@ -39,6 +39,10 @@ export interface IStorage {
   getUserByFirebaseUid(firebaseUid: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, user: Partial<InsertUser>): Promise<User | undefined>;
+  
+  // Usage Tracking
+  getMonthlyUsageCount(userId: string, from?: Date, to?: Date): Promise<number>;
+  getUsageSummary(userId: string): Promise<{used: number, limit: number, periodStart: Date, periodEnd: Date}>;
 
   // Products (Legacy)
   getAllProducts(userId?: string): Promise<Product[]>;
@@ -1638,6 +1642,56 @@ export class DatabaseStorage implements IStorage {
       console.error('Error fetching current uploads:', error);
       throw error;
     }
+  }
+
+  async getMonthlyUsageCount(userId: string, from?: Date, to?: Date): Promise<number> {
+    let monthStart: any;
+    let monthEnd: any;
+
+    if (from && to) {
+      monthStart = from;
+      monthEnd = to;
+    } else {
+      // Use SQL-based UTC month calculation to avoid timezone issues
+      monthStart = sql<Date>`date_trunc('month', now() at time zone 'UTC')`;
+      monthEnd = sql<Date>`(date_trunc('month', now() at time zone 'UTC') + interval '1 month')`;
+    }
+
+    // Count all upload attempts, including failed ones to prevent gaming the system
+    const result = await db
+      .select({ count: count() })
+      .from(uploads)
+      .where(
+        and(
+          eq(uploads.uploadedBy, userId),
+          inArray(uploads.status, ['pending', 'processing', 'processed', 'failed']),
+          gte(uploads.createdAt, monthStart),
+          lt(uploads.createdAt, monthEnd)
+        )
+      );
+
+    return Number(result[0]?.count || 0);
+  }
+
+  async getUsageSummary(userId: string): Promise<{used: number, limit: number, periodStart: Date, periodEnd: Date}> {
+    // Get user's quota
+    const user = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    const limit = user[0]?.monthlyQuota || 10;
+
+    // Get current month boundaries using SQL for consistency
+    const now = new Date();
+    const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+
+    // Get usage count for current month using the same boundary logic
+    const used = await this.getMonthlyUsageCount(userId, periodStart, periodEnd);
+
+    return {
+      used,
+      limit,
+      periodStart,
+      periodEnd
+    };
   }
 }
 

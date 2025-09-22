@@ -67,6 +67,8 @@ export default function Login() {
         title: "Welcome back!",
         description: "You have been signed in successfully.",
       });
+      // Explicit redirect to dashboard after successful login
+      setLocation('/');
     } catch (error: any) {
       toast({
         title: "Sign in failed",
@@ -81,7 +83,8 @@ export default function Login() {
   const handleGoogleSignIn = async () => {
     try {
       await signInWithGoogle();
-      // Redirect will be handled by useEffect above
+      // Explicit redirect to dashboard after successful Google sign in
+      setLocation('/');
     } catch (error: any) {
       toast({
         title: "Sign in failed", 
