@@ -619,8 +619,13 @@ export class FileProcessor {
     return `${type.charAt(0).toUpperCase() + type.slice(1)} field for ${columnName}`;
   }
 
-  // Legacy method for backward compatibility
-  static async extractProductsFromOrders(orders: InsertOrder[], defaultGstPercent: string = '18'): Promise<void> {
+  // Legacy method for backward compatibility - now requires userId
+  static async extractProductsFromOrders(orders: InsertOrder[], defaultGstPercent: string = '18', userId?: string): Promise<void> {
+    if (!userId) {
+      console.warn('extractProductsFromOrders called without userId - skipping product creation');
+      return;
+    }
+
     const uniqueProducts = new Map<string, any>();
 
     orders.forEach(order => {
@@ -634,12 +639,15 @@ export class FileProcessor {
         }
         
         const productInfo = {
+          userId: userId, // Ensure userId is always present
           sku: order.sku,
+          globalSku: `${userId}:${order.sku}`, // Generate unique global SKU
           title: order.productName,
           costPrice: '0',
           packagingCost: '15',
           gstPercent: gstPercent,
           totalOrders: 0,
+          isProcessed: true
         };
         
         uniqueProducts.set(order.sku, productInfo);
@@ -649,7 +657,7 @@ export class FileProcessor {
 
     // Handle products with unique requirement and proper order count increments
     const productList = Array.from(uniqueProducts.values());
-    const existingProducts = await storage.getAllProducts();
+    const existingProducts = await storage.getAllProducts(userId);
     const existingSkusMap = new Map(existingProducts.map(p => [p.sku, p]));
 
     // Prepare products for upsert with proper totalOrders handling

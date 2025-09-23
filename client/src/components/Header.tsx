@@ -1,9 +1,12 @@
 import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { MoreHorizontal, LayoutDashboard, Upload, FileText, Package, LogOut, Menu, X } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { MoreHorizontal, LayoutDashboard, Upload, FileText, Package, LogOut, Menu, X, AlertTriangle, User, Settings } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAuthQuery } from '@/hooks/use-auth-query';
 import { logOut } from '@/lib/firebase';
 import { useState } from 'react';
 
@@ -25,6 +28,20 @@ export default function Header({ title, subtitle }: HeaderProps) {
   const { user } = useAuth();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
+  // Fetch usage data for mobile display
+  const { data: usage } = useAuthQuery({
+    queryKey: ['/api/account/usage'],
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  // Type guard for usage data
+  const usageData = usage as { 
+    currentUsage: number; 
+    monthlyQuota: number; 
+    remainingUsage: number; 
+    canProcess: boolean; 
+    resetDate: string; 
+  } | undefined;
 
   const handleLogout = async () => {
     try {
@@ -125,6 +142,38 @@ export default function Header({ title, subtitle }: HeaderProps) {
                         </p>
                       </div>
                     </div>
+                    
+                    {/* Mobile Usage Limits */}
+                    {usageData && typeof usageData.currentUsage === 'number' && typeof usageData.monthlyQuota === 'number' && (
+                      <div className="mb-4 p-3 bg-accent/50 rounded-md">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-muted-foreground">Monthly Uploads</span>
+                          <span className="text-xs text-muted-foreground font-mono">
+                            {String(usageData.currentUsage).padStart(2, '0')}/{String(usageData.monthlyQuota).padStart(2, '0')}
+                          </span>
+                        </div>
+                        <Progress 
+                          value={(usageData.currentUsage / usageData.monthlyQuota) * 100} 
+                          className="h-2 mb-2"
+                        />
+                        {usageData.currentUsage >= usageData.monthlyQuota ? (
+                          <div className="flex items-center gap-1 text-xs text-destructive">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>Limit reached</span>
+                          </div>
+                        ) : usageData.currentUsage >= usageData.monthlyQuota * 0.8 ? (
+                          <div className="flex items-center gap-1 text-xs text-orange-600">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>Approaching limit</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            {usageData.remainingUsage} uploads remaining
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    
                     <Button 
                       onClick={handleLogout}
                       variant="outline"
@@ -172,23 +221,88 @@ export default function Header({ title, subtitle }: HeaderProps) {
 
           {/* Desktop User Profile - Hidden on Mobile */}
           <div className="hidden md:flex items-center">
-            <button 
-              onClick={handleLogout}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-3 px-3 py-2 rounded-md hover:bg-accent"
-              data-testid="button-logout"
-            >
-              <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
-                <span className="text-sm font-medium" data-testid="user-initials">
-                  {getInitials(user?.displayName, user?.email)}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium" data-testid="user-name">
-                  {user?.displayName || user?.email?.split('@')[0] || 'User'}
-                </span>
-                <LogOut className="w-4 h-4" />
-              </div>
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button 
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-3 px-3 py-2 rounded-md hover:bg-accent"
+                  data-testid="profile-menu-trigger"
+                >
+                  <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
+                    <span className="text-sm font-medium" data-testid="user-initials">
+                      {getInitials(user?.displayName, user?.email)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium" data-testid="user-name">
+                      {user?.displayName || user?.email?.split('@')[0] || 'User'}
+                    </span>
+                  </div>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-80">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium leading-none">
+                      {user?.displayName || user?.email?.split('@')[0] || 'User'}
+                    </p>
+                    <p className="text-xs leading-none text-muted-foreground">
+                      {user?.email}
+                    </p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                
+                {/* Usage Limits in Dropdown */}
+                {usageData && typeof usageData.currentUsage === 'number' && typeof usageData.monthlyQuota === 'number' && (
+                  <>
+                    <div className="px-2 py-3">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-muted-foreground">Monthly Uploads</span>
+                          <span className="text-xs text-muted-foreground font-mono">
+                            {String(usageData.currentUsage).padStart(2, '0')}/{String(usageData.monthlyQuota).padStart(2, '0')}
+                          </span>
+                        </div>
+                        <Progress 
+                          value={(usageData.currentUsage / usageData.monthlyQuota) * 100} 
+                          className="h-2"
+                        />
+                        <div className="flex items-center justify-between text-xs">
+                          {usageData.currentUsage >= usageData.monthlyQuota ? (
+                            <div className="flex items-center gap-1 text-destructive">
+                              <AlertTriangle className="w-3 h-3" />
+                              <span>Limit reached</span>
+                            </div>
+                          ) : usageData.currentUsage >= usageData.monthlyQuota * 0.8 ? (
+                            <div className="flex items-center gap-1 text-orange-600">
+                              <AlertTriangle className="w-3 h-3" />
+                              <span>Approaching limit</span>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              {usageData.remainingUsage} uploads remaining
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                
+                <Link href="/account">
+                  <DropdownMenuItem className="cursor-pointer">
+                    <User className="mr-2 h-4 w-4" />
+                    <span>Account Settings</span>
+                  </DropdownMenuItem>
+                </Link>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive focus:text-destructive">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Sign out</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </nav>

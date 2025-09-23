@@ -818,7 +818,7 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
         if (productsDynamic.length > 0 && userId) {
           // Convert dynamic products to regular products with userId and unique global SKUs
           const productsToSave = productsDynamic.map(product => ({
-            userId,
+            userId: userId, // Ensure userId is always present
             sku: product.sku,
             globalSku: UsageTracker.generateGlobalSku(userId, product.sku),
             title: (product.dynamicData as any)?.['Product Name'] || product.sku,
@@ -857,7 +857,7 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
             await storage.bulkUpsertOrders(enhancedResult.orders);
             
             // Extract products with metadata from CSV if available
-            await FileProcessor.extractProductsFromOrders(enhancedResult.orders, gstPercent || '5');
+            await FileProcessor.extractProductsFromOrders(enhancedResult.orders, gstPercent || '5', userId);
             
             // Apply product metadata from ENHANCED CSV (GST%, Cost Price) with default 5% GST
             if (enhancedResult.productMetadata && enhancedResult.productMetadata.length > 0 && userId) {

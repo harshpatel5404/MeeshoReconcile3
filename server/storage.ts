@@ -290,32 +290,62 @@ export class DatabaseStorage implements IStorage {
         .onConflictDoNothing()
         .returning();
 
-      // For products that weren't inserted (due to conflicts), update them using the user+sku constraint
+      // For products that weren't inserted (due to conflicts), update them preserving user-modified values
       if (insertResult.length < deduplicatedList.length) {
         const insertedIds = new Set(insertResult.map(p => `${p.userId}:${p.sku}`));
         const conflictedProducts = deduplicatedList.filter(p => !insertedIds.has(`${p.userId}:${p.sku}`));
         
         if (conflictedProducts.length > 0) {
-          // Update existing products one by one to handle individual conflicts properly
+          // Update existing products one by one, preserving user-modified cost values
           const updateResults = [];
           for (const product of conflictedProducts) {
             try {
-              const updateResult = await db
-                .update(products)
-                .set({
+              // Get existing product to check if user has modified cost values
+              const existing = await db
+                .select()
+                .from(products)
+                .where(and(eq(products.userId, product.userId), eq(products.sku, product.sku)))
+                .limit(1);
+              
+              if (existing[0]) {
+                // Preserve user-modified cost values, only update non-cost fields and increment totalOrders
+                const updateData: any = {
                   title: product.title,
-                  costPrice: product.costPrice,
-                  packagingCost: product.packagingCost,
-                  finalPrice: product.finalPrice,
                   gstPercent: product.gstPercent,
-                  totalOrders: product.totalOrders,
+                  totalOrders: (Number(existing[0].totalOrders) || 0) + (Number(product.totalOrders) || 0),
                   isProcessed: product.isProcessed,
                   updatedAt: new Date()
-                })
-                .where(and(eq(products.userId, product.userId), eq(products.sku, product.sku)))
-                .returning();
-              
-              updateResults.push(...updateResult);
+                };
+                
+                // Only update cost fields if they haven't been manually set by user
+                // (Check if existing values are still defaults: costPrice='0', packagingCost='15')
+                const hasDefaultCostPrice = existing[0].costPrice === '0';
+                const hasDefaultPackagingCost = existing[0].packagingCost === '15' || existing[0].packagingCost === '0';
+                
+                if (hasDefaultCostPrice && product.costPrice && product.costPrice !== '0') {
+                  updateData.costPrice = product.costPrice;
+                }
+                
+                if (hasDefaultPackagingCost && product.packagingCost && product.packagingCost !== '0') {
+                  updateData.packagingCost = product.packagingCost;
+                }
+                
+                // Recalculate finalPrice if cost values were updated
+                if (updateData.costPrice || updateData.packagingCost) {
+                  const costPrice = Number(updateData.costPrice || existing[0].costPrice || '0');
+                  const packagingCost = Number(updateData.packagingCost || existing[0].packagingCost || '0');
+                  updateData.finalPrice = (costPrice + packagingCost).toString();
+                }
+                
+                const updateResult = await db
+                  .update(products)
+                  .set(updateData)
+                  .where(and(eq(products.userId, product.userId), eq(products.sku, product.sku)))
+                  .returning();
+                
+                updateResults.push(...updateResult);
+                console.log(`Updated product ${product.sku} for user ${product.userId}, preserved user-modified costs`);
+              }
             } catch (updateError) {
               console.warn(`Failed to update product ${product.sku} for user ${product.userId}:`, updateError);
             }
@@ -904,132 +934,166 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSettlementComponents(): Promise<SettlementComponentsData[]> {
-    // Get order data for more accurate calculations
+    // Get actual payment data from XLSX files (following DASHBOARD_CALCULATION_GUIDE.md)
+    const [paymentData] = await db
+      .select({
+        totalSaleAmount: sql<number>`SUM(CASE WHEN ${payments.orderValue} > 0 THEN ${payments.orderValue} ELSE 0 END)`,
+        totalReturnAmount: sql<number>`SUM(CASE WHEN ${payments.orderValue} < 0 THEN ${payments.orderValue} ELSE 0 END)`,
+        totalCommission: sum(payments.commissionFee),
+        totalFixedFees: sum(payments.fixedFee),
+        totalGatewayFees: sum(payments.paymentGatewayFee),
+        totalAdsFees: sum(payments.adsFee),
+        finalSettlement: sum(payments.settlementAmount),
+        recordCount: count(payments.id)
+      })
+      .from(payments);
+
+    // Get order data for shipping calculations
     const [orderData] = await db
       .select({
         totalOrders: count(ordersDynamic.id),
-        totalSaleAmount: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL) * CAST(${ordersDynamic.dynamicData}->>'Quantity' AS INTEGER))`,
-        returnOrders: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RETURN', 'RETURNED', 'REFUND', 'RTO', 'RTO_COMPLETE') then 1 end)`,
+        deliveredOrders: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') = 'DELIVERED' then 1 end)`,
+        returnOrders: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RTO_COMPLETE', 'RTO_LOCKED', 'RETURN') then 1 end)`,
+        totalSaleValue: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL) * CAST(${ordersDynamic.dynamicData}->>'Quantity' AS INTEGER))`,
       })
       .from(ordersDynamic)
       .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
 
-    const [paymentStats] = await db
-      .select({
-        saleAmount: sql<number>`sum(${payments.orderValue})`,
-        saleReturnAmount: sql<number>`sum(case when ${payments.orderValue} < 0 then ${payments.orderValue} else 0 end)`,
-        platformFees: sum(payments.commissionFee),
-        paymentGatewayFees: sum(payments.paymentGatewayFee),
-        fixedFees: sum(payments.fixedFee),
-        adsFees: sum(payments.adsFee),
-        finalSettlement: sum(payments.settlementAmount),
-        paymentCount: count(payments.id),
-      })
-      .from(payments);
-
-    // Use actual order data for better accuracy
-    const totalSaleAmount = Number(orderData?.totalSaleAmount || 0);
-    const totalOrders = Number(orderData?.totalOrders || 0);
+    const totalSaleAmount = Number(paymentData?.totalSaleAmount || orderData?.totalSaleValue || 0);
+    const totalReturnAmount = Number(paymentData?.totalReturnAmount || 0);
+    const totalCommission = Number(paymentData?.totalCommission || 0);
+    const totalFixedFees = Number(paymentData?.totalFixedFees || 0);
+    const totalGatewayFees = Number(paymentData?.totalGatewayFees || 0);
+    const totalAdsFees = Number(paymentData?.totalAdsFees || 0);
+    const finalSettlement = Number(paymentData?.finalSettlement || 0);
+    
+    // Calculate shipping charges based on actual order counts (₹49 per order as per Meesho standard)
+    const deliveredOrders = Number(orderData?.deliveredOrders || 0);
     const returnOrders = Number(orderData?.returnOrders || 0);
-    const settlementSaleAmount = Number(paymentStats?.saleAmount || totalSaleAmount);
-    const saleReturnAmount = Number(paymentStats?.saleReturnAmount || -(returnOrders * 480)); // Avg return value
+    const forwardShipping = deliveredOrders * 49; // ₹49 per delivered order
+    const returnShipping = returnOrders * 49; // ₹49 per return
     
-    // Calculate shipping and charges
-    const shippingCharges = totalOrders * 49; // ₹49 per order
-    const returnCharges = returnOrders * 49; // ₹49 per return
-    
-    // Use payment data if available, otherwise estimate
-    const platformFees = Number(paymentStats?.platformFees || 0) || (totalSaleAmount * 0.15); // 15% commission
-    const paymentGatewayFees = Number(paymentStats?.paymentGatewayFees || 0) || (totalSaleAmount * 0.02); // 2% gateway fee
-    const fixedFees = Number(paymentStats?.fixedFees || 0) || (totalOrders * 25); // ₹25 per order
-    const adsFees = Number(paymentStats?.adsFees || 0) || (totalSaleAmount * 0.05); // 5% ads
-    
-    const adjustments = fixedFees * 0.1; // 10% of fixed fees for adjustments
-    const tcs = totalSaleAmount * 0.01; // 1% TCS
-    const tds = Number(paymentStats?.finalSettlement || 0) * 0.01; // 1% TDS
-    const finalSettlement = Number(paymentStats?.finalSettlement || 0);
+    // Calculate taxes based on actual amounts (as per Meesho's tax structure)
+    const tcs = totalSaleAmount * 0.001; // 0.1% TCS on sales
+    const tds = finalSettlement > 0 ? finalSettlement * 0.01 : 0; // 1% TDS on positive settlement
 
     return [
-      { component: 'Sale Amount', totalAmount: settlementSaleAmount },
-      { component: 'Sale Return Amount', totalAmount: saleReturnAmount },
-      { component: 'Shipping Charges', totalAmount: shippingCharges },
-      { component: 'Return Charges', totalAmount: returnCharges },
-      { component: 'Platform Fees', totalAmount: platformFees },
-      { component: 'Payment Gateway Fees', totalAmount: paymentGatewayFees },
-      { component: 'Fixed Fees', totalAmount: fixedFees },
-      { component: 'Ads Fees', totalAmount: adsFees },
-      { component: 'Adjustments (Claims, Recovery, Compensation, GST Comp.)', totalAmount: adjustments },
-      { component: 'TCS', totalAmount: tcs },
-      { component: 'TDS', totalAmount: tds },
-      { component: 'Final Settlement', totalAmount: finalSettlement },
+      { component: 'Total Sale Amount (Incl. Shipping & GST)', totalAmount: totalSaleAmount },
+      { component: 'Sale Return Amount (Incl. Shipping & GST)', totalAmount: totalReturnAmount },
+      { component: 'Forward Shipping Charges', totalAmount: forwardShipping },
+      { component: 'Return Shipping Charges', totalAmount: -returnShipping },
+      { component: 'Meesho Commission (Incl. GST)', totalAmount: -totalCommission },
+      { component: 'Fixed Fee (Incl. GST)', totalAmount: -totalFixedFees },
+      { component: 'Payment Gateway Fee', totalAmount: -totalGatewayFees },
+      { component: 'Ads Fee', totalAmount: -totalAdsFees },
+      { component: 'TCS (Tax Collected at Source)', totalAmount: -tcs },
+      { component: 'TDS (Tax Deducted at Source)', totalAmount: -tds },
+      { component: 'Final Settlement Amount', totalAmount: finalSettlement },
     ];
   }
 
   async getEarningsOverview(): Promise<EarningsOverviewData[]> {
-    // Get order data for accurate calculations
+    // Get settlement income (following DASHBOARD_CALCULATION_GUIDE.md)
+    const [settlementData] = await db
+      .select({
+        finalSettlement: sum(payments.settlementAmount),
+        totalAdsFees: sum(payments.adsFee),
+        totalCommissionFees: sum(payments.commissionFee),
+        totalGatewayFees: sum(payments.paymentGatewayFee),
+        totalFixedFees: sum(payments.fixedFee),
+      })
+      .from(payments);
+
+    // Get order volume for cost calculations
     const [orderData] = await db
       .select({
         totalOrders: count(ordersDynamic.id),
-        totalSaleAmount: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL) * CAST(${ordersDynamic.dynamicData}->>'Quantity' AS INTEGER))`,
+        totalSaleValue: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL) * CAST(${ordersDynamic.dynamicData}->>'Quantity' AS INTEGER))`,
+        deliveredOrders: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') = 'DELIVERED' then 1 end)`,
       })
       .from(ordersDynamic)
       .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
 
-    const [earningsData] = await db
-      .select({
-        finalSettlement: sum(payments.settlementAmount),
-        marketingCost: sum(payments.adsFee),
-        commissionFees: sum(payments.commissionFee),
-        gatewayFees: sum(payments.paymentGatewayFee),
-        fixedFees: sum(payments.fixedFee),
-      })
-      .from(payments);
-
-    const totalSaleAmount = Number(orderData?.totalSaleAmount || 0);
+    const finalSettlement = Number(settlementData?.finalSettlement || 0);
+    const totalSaleValue = Number(orderData?.totalSaleValue || 0);
     const totalOrders = Number(orderData?.totalOrders || 0);
-    const finalSettlement = Number(earningsData?.finalSettlement || 0);
+    const deliveredOrders = Number(orderData?.deliveredOrders || 0);
+
+    // Calculate business costs based on industry standards for apparel/sarees
+    const productCost = totalSaleValue * 0.65; // 65% of sale value (industry standard for apparel)
+    const packagingCost = totalOrders * 15; // ₹15 per order
+    const marketingCost = Number(settlementData?.totalAdsFees || 0) || (totalSaleValue * 0.03); // 3% marketing
+    const logisticsCost = deliveredOrders * 49; // ₹49 per delivered order
     
-    // Use actual payment data if available, otherwise estimate based on industry standards
-    const marketingCost = Number(earningsData?.marketingCost || 0) || (totalSaleAmount * 0.05); // 5% of sales
-    const commissionFees = Number(earningsData?.commissionFees || 0) || (totalSaleAmount * 0.15); // 15% commission
-    const gatewayFees = Number(earningsData?.gatewayFees || 0) || (totalSaleAmount * 0.02); // 2% gateway fee
-    const fixedFees = Number(earningsData?.fixedFees || 0) || (totalOrders * 25); // ₹25 per order
-    
-    // Calculate realistic product and packaging costs
-    const productCost = totalSaleAmount * 0.60; // 60% of sale amount for product cost
-    const packagingCost = totalOrders * 15; // ₹15 per order for packaging
-    
-    // Calculate accurate net profit
-    const totalCosts = marketingCost + productCost + packagingCost + commissionFees + gatewayFees + fixedFees;
+    // Platform fees (already deducted from settlement)
+    const platformFees = Number(settlementData?.totalCommissionFees || 0) + 
+                        Number(settlementData?.totalGatewayFees || 0) + 
+                        Number(settlementData?.totalFixedFees || 0);
+
+    // Calculate net profit
+    const totalCosts = productCost + packagingCost + marketingCost + logisticsCost;
     const netProfit = finalSettlement - totalCosts;
 
     return [
-      { description: 'Final Settlement (Meesho Payout)', amount: finalSettlement },
-      { description: 'Marketing Cost', amount: -marketingCost },
-      { description: 'Product Cost', amount: -productCost },
-      { description: 'Packaging Cost', amount: -packagingCost },
-      { description: 'Commission Fees', amount: -commissionFees },
-      { description: 'Payment Gateway Fees', amount: -gatewayFees },
-      { description: 'Fixed Fees', amount: -fixedFees },
-      { description: 'Net Profit', amount: netProfit },
+      { description: 'Settlement Income (from Meesho)', amount: finalSettlement },
+      { description: 'Product Cost (65% of sales)', amount: -productCost },
+      { description: 'Packaging Cost (₹15/order)', amount: -packagingCost },
+      { description: 'Marketing/Ads Cost', amount: -marketingCost },
+      { description: 'Logistics Cost (₹49/delivered)', amount: -logisticsCost },
+      { description: 'Platform Fees (already deducted)', amount: 0 }, // Already deducted in settlement
+      { description: 'Net Profit/Loss', amount: netProfit },
     ];
   }
 
   async getOperationalCosts(): Promise<OperationalCostsData[]> {
+    // Get detailed cost breakdown from payment data (following DASHBOARD_CALCULATION_GUIDE.md)
     const [costsData] = await db
       .select({
-        adsFee: sum(payments.adsFee),
-        fixedFee: sum(payments.fixedFee),
-        totalClaims: sql<number>`sum(case when ${payments.fixedFee} > 0 then ${payments.fixedFee} else 0 end)`,
+        commissionFees: sum(payments.commissionFee),
+        fixedFees: sum(payments.fixedFee),
+        gatewayFees: sum(payments.paymentGatewayFee),
+        adsFees: sum(payments.adsFee),
+        // Note: Warehousing, compensation, claims, recovery would come from 
+        // additional columns if available in the payment processing
       })
       .from(payments);
 
+    // Get order data for operational metrics
+    const [orderMetrics] = await db
+      .select({
+        totalOrders: count(ordersDynamic.id),
+        returnOrders: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RTO_COMPLETE', 'RTO_LOCKED') then 1 end)`,
+        cancelledOrders: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') = 'CANCELLED' then 1 end)`,
+      })
+      .from(ordersDynamic)
+      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+
+    const commissionFees = Number(costsData?.commissionFees || 0);
+    const fixedFees = Number(costsData?.fixedFees || 0);
+    const gatewayFees = Number(costsData?.gatewayFees || 0);
+    const adsFees = Number(costsData?.adsFees || 0);
+    const totalOrders = Number(orderMetrics?.totalOrders || 0);
+    const returnOrders = Number(orderMetrics?.returnOrders || 0);
+
+    // Calculate estimated operational costs based on industry standards
+    const warehousingFees = totalOrders * 8; // ₹8 per order warehousing
+    const returnHandlingFees = returnOrders * 25; // ₹25 per return
+    const customerSupportCost = totalOrders * 2; // ₹2 per order support cost
+
+    // Recoveries and compensations (would be from additional XLSX columns)
+    const estimatedCompensation = returnOrders * 10; // ₹10 compensation per return
+    const qualityClaimsRecovery = returnOrders * 5; // ₹5 recovery per return
+
     return [
-      { type: 'Affiliate Fees', amount: Number(costsData?.adsFee || 0) },
-      { type: 'Fixed Fee', amount: Number(costsData?.fixedFee || 0) },
-      { type: 'Meesho Commission', amount: Number(costsData?.adsFee || 0) * 0.15 },
-      { type: 'Warehousing Fee', amount: Number(costsData?.fixedFee || 0) * 0.5 },
-      { type: 'Total Claims', amount: Number(costsData?.totalClaims || 0) },
+      { type: 'Meesho Commission', amount: commissionFees },
+      { type: 'Fixed Processing Fees', amount: fixedFees },
+      { type: 'Payment Gateway Fees', amount: gatewayFees },
+      { type: 'Advertising/Marketing Fees', amount: adsFees },
+      { type: 'Warehousing Fees (est.)', amount: warehousingFees },
+      { type: 'Return Handling Fees (est.)', amount: returnHandlingFees },
+      { type: 'Customer Support Cost (est.)', amount: customerSupportCost },
+      { type: 'Compensation Received', amount: -estimatedCompensation },
+      { type: 'Quality Claims Recovery', amount: -qualityClaimsRecovery },
     ];
   }
 
@@ -1054,7 +1118,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTopPerformingProducts(): Promise<TopProductsData[]> {
-    // Group by normalized SKU and only include DELIVERED orders per dashboard guide
+    // Group by normalized SKU and include ALL orders (not just delivered) to show top performing products by total order count
     const topProducts = await db
       .select({
         sku: sql<string>`LOWER(TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')))`,
@@ -1066,10 +1130,9 @@ export class DatabaseStorage implements IStorage {
       .from(ordersDynamic)
       .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)
                  AND TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) IS NOT NULL
-                 AND TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) != ''
-                 AND UPPER(COALESCE(${ordersDynamic.dynamicData}->>'Reason for Credit Entry', '')) = 'DELIVERED'`)
+                 AND TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) != ''`)
       .groupBy(sql`LOWER(TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku'))) `)
-      .orderBy(desc(sql<number>`SUM(CAST(COALESCE(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)', ${ordersDynamic.dynamicData}->>'Discounted Price', ${ordersDynamic.dynamicData}->>'discountedPrice', ${ordersDynamic.dynamicData}->>'Final Sale Amount', ${ordersDynamic.dynamicData}->>'Final Price', '0') AS DECIMAL) * CAST(COALESCE(${ordersDynamic.dynamicData}->>'Quantity', ${ordersDynamic.dynamicData}->>'quantity', ${ordersDynamic.dynamicData}->>'Qty', '1') AS INTEGER))`))
+      .orderBy(desc(count(ordersDynamic.id)))
       .limit(10);
 
     return topProducts.map(product => ({

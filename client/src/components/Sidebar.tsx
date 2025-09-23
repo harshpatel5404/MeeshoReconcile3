@@ -132,7 +132,7 @@ export default function Sidebar() {
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-medium text-muted-foreground">Monthly Uploads</span>
               <span className="text-xs text-muted-foreground font-mono">
-                {usageData.currentUsage}/{usageData.monthlyQuota}
+                {String(usageData.currentUsage).padStart(2, '0')}/{String(usageData.monthlyQuota).padStart(2, '0')}
               </span>
             </div>
             <Progress 
