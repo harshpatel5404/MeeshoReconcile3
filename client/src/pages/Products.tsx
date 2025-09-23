@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Header from '@/components/Header';
-import { Package, Search } from 'lucide-react';
+import { Package, Search, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuthQuery, useAuthApiRequest } from '@/hooks/use-auth-query';
 
@@ -23,6 +23,39 @@ export default function Products() {
   });
 
   const productsArray = Array.isArray(products) ? products : [];
+
+  // Helper function to invalidate all related queries when product data changes
+  const invalidateAllRelatedQueries = () => {
+    // Product-related queries
+    queryClient.invalidateQueries({ queryKey: ['/api/products'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/products-dynamic'] });
+    
+    // Order-related queries (these use product cost data for calculations)
+    queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/orders-dynamic'] });
+    
+    // Dashboard queries (all depend on product cost data for profit calculations)
+    queryClient.invalidateQueries({ queryKey: ['/api/dashboard/summary'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/dashboard/comprehensive-summary'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/dashboard/settlement-components'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/dashboard/earnings-overview'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/dashboard/operational-costs'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/dashboard/daily-volume'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/dashboard/top-products'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/dashboard/top-returns'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/dashboard/orders-overview'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/dashboard/revenue-trend'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/dashboard/order-status'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/dashboard/live-metrics'] });
+    
+    // Invalidate any cached calculation results
+    queryClient.invalidateQueries({ predicate: (query) => 
+      typeof query.queryKey[0] === 'string' && 
+      (query.queryKey[0].startsWith('/api/dashboard') || 
+       query.queryKey[0].startsWith('/api/orders') ||
+       query.queryKey[0].startsWith('/api/products'))
+    });
+  };
 
   // Sync product values with incoming data
   useEffect(() => {
@@ -45,10 +78,19 @@ export default function Products() {
       return apiRequest('PUT', `/api/products/${sku}`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/products'] });
+      // Invalidate all related queries to ensure complete data consistency
+      invalidateAllRelatedQueries();
       toast({
         title: "Product updated",
-        description: "Product has been updated successfully.",
+        description: "Product has been updated successfully. Dashboard and orders data will refresh automatically.",
+      });
+    },
+    onError: (error) => {
+      console.error('Product update error:', error);
+      toast({
+        title: "Product update failed",
+        description: "There was an error updating the product. Please try again.",
+        variant: "destructive",
       });
     },
   });
@@ -57,20 +99,22 @@ export default function Products() {
     mutationFn: async ({ field, value }: { field: string; value: string }) => {
       return apiRequest('POST', '/api/products/bulk-update', { field, value });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/products'] });
+    onSuccess: (data) => {
+      // Invalidate all related queries to ensure complete data consistency
+      invalidateAllRelatedQueries();
       // Clear the bulk input fields
       setBulkCostPrice('');
       setBulkPackagingCost('');
       toast({
         title: "Bulk update completed",
-        description: "All products have been updated successfully.",
+        description: `Successfully updated products. Dashboard and orders data will refresh automatically.`,
       });
     },
-    onError: () => {
+    onError: (error) => {
+      console.error('Bulk update error:', error);
       toast({
         title: "Bulk update failed",
-        description: "There was an error updating the products.",
+        description: "There was an error updating the products. Please try again.",
         variant: "destructive",
       });
     },
@@ -80,25 +124,19 @@ export default function Products() {
     mutationFn: async () => {
       return apiRequest('POST', '/api/products/update-all-costs', {});
     },
-    onSuccess: () => {
-      // Refresh products and dashboard data
-      queryClient.invalidateQueries({ queryKey: ['/api/products'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/comprehensive-summary'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/settlement-components'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/earnings-overview'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/operational-costs'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/daily-volume'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/top-products'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/top-returns'] });
+    onSuccess: (data) => {
+      // Invalidate all related queries to ensure complete data consistency
+      invalidateAllRelatedQueries();
       toast({
         title: "All product costs updated",
-        description: "Final prices have been recalculated and dashboard refreshed.",
+        description: `Successfully processed all products. Final prices recalculated and dashboard refreshed.`,
       });
     },
-    onError: () => {
+    onError: (error) => {
+      console.error('Update all costs error:', error);
       toast({
         title: "Update failed",
-        description: "There was an error updating product costs.",
+        description: "There was an error updating product costs. Please try again.",
         variant: "destructive",
       });
     },
@@ -183,8 +221,16 @@ export default function Products() {
               <h3 className="text-lg font-semibold flex items-center gap-2">
                 <Package className="w-5 h-5" />
                 Product Cost Management
+                {(updateProductMutation.isPending || bulkUpdateMutation.isPending || updateAllCostsMutation.isPending) && (
+                  <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+                )}
               </h3>
               <div className="flex items-center gap-4">
+                {(updateProductMutation.isPending || bulkUpdateMutation.isPending || updateAllCostsMutation.isPending) && (
+                  <span className="text-sm text-blue-600 font-medium animate-pulse">
+                    Syncing data across dashboard and orders...
+                  </span>
+                )}
                 <Button 
                   onClick={() => updateAllCostsMutation.mutate()}
                   disabled={updateAllCostsMutation.isPending}

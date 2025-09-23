@@ -708,8 +708,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Recalculate dashboard metrics after bulk update
       await storage.recalculateAllMetrics();
       
-      res.json({ message: 'Bulk update completed' });
+      res.json({ 
+        message: 'Bulk update completed',
+        updatedProducts: products.length,
+        field: field,
+        value: validatedValue
+      });
     } catch (error) {
+      console.error('Bulk update error:', error);
       res.status(500).json({ message: 'Bulk update failed' });
     }
   });
