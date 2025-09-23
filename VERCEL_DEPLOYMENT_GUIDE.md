@@ -24,7 +24,7 @@ VITE_FIREBASE_AUTH_DOMAIN=reconme-fbee1.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=reconme-fbee1
 VITE_FIREBASE_STORAGE_BUCKET=reconme-fbee1.appspot.com
 VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
-VITE_FIREBASE_APP_ID=your-app-id
+VITE_FIREBASE_APP_ID=1:511599323860:web:38ac9cf5e061ff350e2941
 
 # Database Configuration
 DATABASE_URL=postgresql://postgres:$Harsh98@db.tepwrjnmaosalngjffvy.supabase.co:5432/postgres
