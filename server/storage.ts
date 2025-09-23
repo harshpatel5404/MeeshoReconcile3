@@ -1054,64 +1054,59 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTopPerformingProducts(): Promise<TopProductsData[]> {
+    // Group by normalized SKU and only include DELIVERED orders per dashboard guide
     const topProducts = await db
       .select({
-        sku: sql<string>`${ordersDynamic.dynamicData}->>'SKU'`,
-        name: sql<string>`${ordersDynamic.dynamicData}->>'Product Name'`,
+        sku: sql<string>`LOWER(TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')))`,
+        name: sql<string>`MIN(COALESCE(${ordersDynamic.dynamicData}->>'Product Name', ${ordersDynamic.dynamicData}->>'productName'))`,
         orders: count(ordersDynamic.id),
-        totalSales: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL) * CAST(${ordersDynamic.dynamicData}->>'Quantity' AS INTEGER))`,
-        totalQuantity: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Quantity' AS INTEGER))`,
+        totalSales: sql<number>`SUM(CAST(COALESCE(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)', ${ordersDynamic.dynamicData}->>'Discounted Price', ${ordersDynamic.dynamicData}->>'discountedPrice', ${ordersDynamic.dynamicData}->>'Final Sale Amount', ${ordersDynamic.dynamicData}->>'Final Price', '0') AS DECIMAL) * CAST(COALESCE(${ordersDynamic.dynamicData}->>'Quantity', ${ordersDynamic.dynamicData}->>'quantity', ${ordersDynamic.dynamicData}->>'Qty', '1') AS INTEGER))`,
+        totalQuantity: sql<number>`SUM(CAST(COALESCE(${ordersDynamic.dynamicData}->>'Quantity', ${ordersDynamic.dynamicData}->>'quantity', ${ordersDynamic.dynamicData}->>'Qty', '1') AS INTEGER))`,
       })
       .from(ordersDynamic)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true) 
-                 AND ${ordersDynamic.dynamicData}->>'SKU' IS NOT NULL 
-                 AND ${ordersDynamic.dynamicData}->>'SKU' != '' 
-                 AND ${ordersDynamic.dynamicData}->>'Product Name' IS NOT NULL 
-                 AND ${ordersDynamic.dynamicData}->>'Product Name' != ''`)
-      .groupBy(sql`${ordersDynamic.dynamicData}->>'SKU'`, sql`${ordersDynamic.dynamicData}->>'Product Name'`)
-      .orderBy(desc(sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL) * CAST(${ordersDynamic.dynamicData}->>'Quantity' AS INTEGER))`))
+      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)
+                 AND TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) IS NOT NULL
+                 AND TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) != ''
+                 AND UPPER(COALESCE(${ordersDynamic.dynamicData}->>'Reason for Credit Entry', '')) = 'DELIVERED'`)
+      .groupBy(sql`LOWER(TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku'))) `)
+      .orderBy(desc(sql<number>`SUM(CAST(COALESCE(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)', ${ordersDynamic.dynamicData}->>'Discounted Price', ${ordersDynamic.dynamicData}->>'discountedPrice', ${ordersDynamic.dynamicData}->>'Final Sale Amount', ${ordersDynamic.dynamicData}->>'Final Price', '0') AS DECIMAL) * CAST(COALESCE(${ordersDynamic.dynamicData}->>'Quantity', ${ordersDynamic.dynamicData}->>'quantity', ${ordersDynamic.dynamicData}->>'Qty', '1') AS INTEGER))`))
       .limit(10);
 
-    return topProducts
-      .filter(product => product.sku && product.name && product.sku.trim() !== '' && product.name.trim() !== '')
-      .map(product => ({
-        sku: product.sku || 'Unknown SKU',
-        name: product.name || 'Unknown Product',
-        orders: product.orders,
-        revenue: Number(product.totalSales || 0),
-        totalQuantity: Number(product.totalQuantity || 0),
-      }));
+    return topProducts.map(product => ({
+      sku: product.sku,
+      name: product.name || 'Unknown Product',
+      orders: product.orders,
+      revenue: Number(product.totalSales || 0),
+      totalQuantity: Number(product.totalQuantity || 0),
+    }));
   }
 
   async getTopReturnProducts(): Promise<TopReturnsData[]> {
+    // Group by normalized SKU and count combined Returns + RTOs per guide
     const topReturns = await db
       .select({
-        sku: sql<string>`${ordersDynamic.dynamicData}->>'SKU'`,
-        name: sql<string>`${ordersDynamic.dynamicData}->>'Product Name'`,
-        returns: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RETURN', 'RETURNED', 'REFUND') then 1 end)`,
-        rtoCount: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RTO', 'RTO_COMPLETE', 'RTO_LOCKED') then 1 end)`,
+        sku: sql<string>`LOWER(TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')))`,
+        name: sql<string>`MIN(COALESCE(${ordersDynamic.dynamicData}->>'Product Name', ${ordersDynamic.dynamicData}->>'productName'))`,
+        returns: sql<number>`count(case when UPPER(COALESCE(${ordersDynamic.dynamicData}->>'Reason for Credit Entry','')) IN ('RETURN', 'RETURNED', 'REFUND') then 1 end)`,
+        rtoCount: sql<number>`count(case when UPPER(COALESCE(${ordersDynamic.dynamicData}->>'Reason for Credit Entry','')) IN ('RTO', 'RTO_COMPLETE', 'RTO_LOCKED') then 1 end)`,
         totalCount: count(ordersDynamic.id),
       })
       .from(ordersDynamic)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true) 
-                 AND ${ordersDynamic.dynamicData}->>'SKU' IS NOT NULL 
-                 AND ${ordersDynamic.dynamicData}->>'SKU' != '' 
-                 AND ${ordersDynamic.dynamicData}->>'Product Name' IS NOT NULL 
-                 AND ${ordersDynamic.dynamicData}->>'Product Name' != ''`)
-      .groupBy(sql`${ordersDynamic.dynamicData}->>'SKU'`, sql`${ordersDynamic.dynamicData}->>'Product Name'`)
-      .having(sql`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RETURN', 'RETURNED', 'REFUND', 'RTO', 'RTO_COMPLETE', 'RTO_LOCKED') then 1 end) > 0`)
-      .orderBy(sql`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RETURN', 'RETURNED', 'REFUND', 'RTO', 'RTO_COMPLETE', 'RTO_LOCKED') then 1 end) DESC`)
+      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)
+                 AND TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) IS NOT NULL
+                 AND TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) != ''`)
+      .groupBy(sql`LOWER(TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku'))) `)
+      .having(sql`count(case when UPPER(COALESCE(${ordersDynamic.dynamicData}->>'Reason for Credit Entry','')) IN ('RETURN', 'RETURNED', 'REFUND', 'RTO', 'RTO_COMPLETE', 'RTO_LOCKED') then 1 end) > 0`)
+      .orderBy(sql`count(case when UPPER(COALESCE(${ordersDynamic.dynamicData}->>'Reason for Credit Entry','')) IN ('RETURN', 'RETURNED', 'REFUND', 'RTO', 'RTO_COMPLETE', 'RTO_LOCKED') then 1 end) DESC`)
       .limit(10);
 
-    return topReturns
-      .filter(product => product.sku && product.name && product.sku.trim() !== '' && product.name.trim() !== '')
-      .map(product => ({
-        sku: product.sku || 'Unknown SKU',
-        name: product.name || 'Unknown Product',
-        returns: product.returns,
-        rtoCount: product.rtoCount,
-        combinedCount: product.returns + product.rtoCount,
-      }));
+    return topReturns.map(product => ({
+      sku: product.sku,
+      name: product.name || 'Unknown Product',
+      returns: product.returns,
+      rtoCount: product.rtoCount,
+      combinedCount: product.returns + product.rtoCount,
+    }));
   }
 
   async getOrdersOverview(): Promise<OrdersOverview> {

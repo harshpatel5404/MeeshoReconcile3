@@ -190,7 +190,7 @@ export default function Products() {
                   disabled={updateAllCostsMutation.isPending}
                   data-testid="button-update-all-products"
                 >
-                  {updateAllCostsMutation.isPending ? 'Updating...' : 'Update All Product Costs'}
+                  {updateAllCostsMutation.isPending ? 'Updating...' : 'Update Dashboard & Product Costs'}
                 </Button>
               </div>
             </div>
@@ -356,9 +356,6 @@ export default function Products() {
                               }`}>
                                 ₹{finalPrice.toFixed(2)}
                               </span>
-                              {finalPrice === 0 && (
-                                <span className="text-xs text-orange-500">Set costs above</span>
-                              )}
                             </div>
                           </td>
                         </tr>
