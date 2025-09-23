@@ -7,28 +7,35 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { signInWithEmail, signInWithGoogle, handleRedirectResult } from '@/lib/firebase';
+import { signUpWithEmail, signInWithGoogle, handleRedirectResult } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 
-const loginSchema = z.object({
+const signupSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Please enter a valid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
+  confirmPassword: z.string().min(6, 'Please confirm your password'),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
 });
 
-type LoginForm = z.infer<typeof loginSchema>;
+type SignupForm = z.infer<typeof signupSchema>;
 
-export default function Login() {
+export default function Signup() {
   const [isLoading, setIsLoading] = useState(false);
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const { toast } = useToast();
 
-  const form = useForm<LoginForm>({
-    resolver: zodResolver(loginSchema),
+  const form = useForm<SignupForm>({
+    resolver: zodResolver(signupSchema),
     defaultValues: {
+      name: '',
       email: '',
       password: '',
+      confirmPassword: '',
     },
   });
 
@@ -45,34 +52,34 @@ export default function Login() {
       .then((result) => {
         if (result?.user) {
           toast({
-            title: "Welcome back!",
-            description: "You have been signed in successfully.",
+            title: "Welcome to MeeshoReconcile!",
+            description: "Your account has been created successfully.",
           });
         }
       })
       .catch((error) => {
         toast({
-          title: "Sign in failed",
+          title: "Sign up failed",
           description: error.message,
           variant: "destructive",
         });
       });
   }, [toast]);
 
-  const onSubmit = async (data: LoginForm) => {
+  const onSubmit = async (data: SignupForm) => {
     setIsLoading(true);
     try {
-      await signInWithEmail(data.email, data.password);
+      await signUpWithEmail(data.email, data.password, data.name);
       toast({
-        title: "Welcome back!",
-        description: "You have been signed in successfully.",
+        title: "Welcome to MeeshoReconcile!",
+        description: "Your account has been created successfully.",
       });
-      // Explicit redirect to dashboard after successful login
+      // Explicit redirect to dashboard after successful signup
       setLocation('/');
     } catch (error: any) {
       toast({
-        title: "Sign in failed",
-        description: error.message || "Please check your credentials and try again.",
+        title: "Sign up failed",
+        description: error.message || "Please check your information and try again.",
         variant: "destructive",
       });
     } finally {
@@ -80,15 +87,19 @@ export default function Login() {
     }
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSignUp = async () => {
     try {
       await signInWithGoogle();
-      // Explicit redirect to dashboard after successful Google sign in
+      toast({
+        title: "Welcome to MeeshoReconcile!",
+        description: "Your account has been created successfully.",
+      });
+      // Explicit redirect to dashboard after successful Google sign up
       setLocation('/');
     } catch (error: any) {
       toast({
-        title: "Sign in failed", 
-        description: error.message || "Google sign in failed. Please try again.",
+        title: "Sign up failed", 
+        description: error.message || "Google sign up failed. Please try again.",
         variant: "destructive",
       });
     }
@@ -111,10 +122,30 @@ export default function Login() {
         
         <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
           <CardContent className="p-8">
-            <h2 className="text-2xl font-semibold text-center mb-6 text-slate-800">Welcome Back</h2>
+            <h2 className="text-2xl font-semibold text-center mb-6 text-slate-800">Create Your Account</h2>
             
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-slate-700">Full Name</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="text" 
+                          placeholder="Enter your full name" 
+                          {...field}
+                          data-testid="input-name"
+                          className="border-slate-200 focus:border-blue-500 focus:ring-blue-500"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <FormField
                   control={form.control}
                   name="email"
@@ -144,9 +175,29 @@ export default function Login() {
                       <FormControl>
                         <Input 
                           type="password" 
-                          placeholder="Enter your password" 
+                          placeholder="Create a password" 
                           {...field}
                           data-testid="input-password"
+                          className="border-slate-200 focus:border-blue-500 focus:ring-blue-500"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="confirmPassword"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-slate-700">Confirm Password</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="password" 
+                          placeholder="Confirm your password" 
+                          {...field}
+                          data-testid="input-confirm-password"
                           className="border-slate-200 focus:border-blue-500 focus:ring-blue-500"
                         />
                       </FormControl>
@@ -159,9 +210,9 @@ export default function Login() {
                   type="submit" 
                   className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium py-2.5 transition-all duration-200 shadow-lg hover:shadow-xl" 
                   disabled={isLoading}
-                  data-testid="button-signin"
+                  data-testid="button-signup"
                 >
-                  {isLoading ? 'Signing in...' : 'Sign In'}
+                  {isLoading ? 'Creating Account...' : 'Create Account'}
                 </Button>
               </form>
             </Form>
@@ -179,8 +230,8 @@ export default function Login() {
               <Button 
                 variant="outline" 
                 className="w-full mt-4 border-slate-200 hover:bg-slate-50 text-slate-700 font-medium py-2.5 transition-all duration-200" 
-                onClick={handleGoogleSignIn}
-                data-testid="button-google-signin"
+                onClick={handleGoogleSignUp}
+                data-testid="button-google-signup"
               >
                 <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -188,12 +239,12 @@ export default function Login() {
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
-                Sign in with Google
+                Sign up with Google
               </Button>
             </div>
             
             <p className="text-center text-sm text-slate-500 mt-6">
-              Don't have an account? <a href="/signup" className="text-blue-600 hover:text-blue-700 hover:underline font-medium">Sign up</a>
+              Already have an account? <a href="/login" className="text-blue-600 hover:text-blue-700 hover:underline font-medium">Sign in</a>
             </p>
           </CardContent>
         </Card>

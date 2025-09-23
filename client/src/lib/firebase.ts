@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from "firebase/app";
-import { getAuth, signInWithRedirect, GoogleAuthProvider, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { getAuth, signInWithRedirect, GoogleAuthProvider, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile } from "firebase/auth";
 
 // Embedded Firebase Configuration for Meesho Payment Reconciliation
 // These credentials are embedded directly for easy future usage and development
@@ -32,8 +32,17 @@ export const signInWithEmail = (email: string, password: string) => {
   return signInWithEmailAndPassword(auth, email, password);
 };
 
-export const signUpWithEmail = (email: string, password: string) => {
-  return createUserWithEmailAndPassword(auth, email, password);
+export const signUpWithEmail = async (email: string, password: string, displayName?: string) => {
+  const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+  
+  // Update the user's display name if provided
+  if (displayName && userCredential.user) {
+    await updateProfile(userCredential.user, {
+      displayName: displayName
+    });
+  }
+  
+  return userCredential;
 };
 
 export const logOut = () => {

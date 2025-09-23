@@ -248,30 +248,26 @@ export default function Dashboard() {
     }
   };
 
+  const refreshButton = (
+    <Button 
+      onClick={handleRefreshData} 
+      disabled={isRefreshing}
+      size="sm"
+      className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium shadow-lg hover:shadow-xl transition-all duration-200"
+      data-testid="button-refresh-dashboard"
+    >
+      <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+      {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+    </Button>
+  );
+
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-100">
-      <Header title="Dashboard" subtitle="Financial Analytics & Insights" />
-      
-      {/* Refresh Button Section */}
-      <div className="px-6 py-4 border-b border-border/50 bg-white/50 backdrop-blur-sm">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Database className="w-4 h-4" />
-            <span>Data from processed files (Orders CSV + Payment ZIP)</span>
-          </div>
-          <Button 
-            onClick={handleRefreshData} 
-            disabled={isRefreshing}
-            variant="outline" 
-            size="sm"
-            className="flex items-center gap-2 hover:bg-primary hover:text-primary-foreground transition-colors"
-            data-testid="button-refresh-dashboard"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
-          </Button>
-        </div>
-      </div>
+      <Header 
+        title="Dashboard" 
+        subtitle="Financial Analytics & Insights" 
+        rightContent={refreshButton}
+      />
       
       <div className="flex-1 p-6">
         <div className="space-y-6">

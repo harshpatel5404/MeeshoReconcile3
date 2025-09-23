@@ -5,11 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import Header from '@/components/Header';
-import { Upload as UploadIcon, FileText, Archive } from 'lucide-react';
+import { Upload as UploadIcon, FileText, Archive, AlertTriangle, Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest, getQueryFn } from '@/lib/queryClient';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAuthQuery } from '@/hooks/use-auth-query';
 
 export default function Upload() {
   const [paymentFiles, setPaymentFiles] = useState<FileList | null>(null);
@@ -24,6 +26,21 @@ export default function Upload() {
     enabled: !!token,
   });
 
+  // Fetch usage data to check limits
+  const { data: usage } = useAuthQuery({
+    queryKey: ['/api/account/usage'],
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  // Type guard for usage data
+  const usageData = usage as { 
+    currentUsage: number; 
+    monthlyQuota: number; 
+    remainingUsage: number; 
+    canProcess: boolean; 
+    resetDate: string; 
+  } | undefined;
+
   const uploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
       const response = await fetch('/api/upload', {
@@ -33,8 +50,21 @@ export default function Upload() {
         },
         body: formData,
       });
+      
       if (!response.ok) {
-        throw new Error('Upload failed');
+        // Parse error response to get specific error details
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = { message: 'Upload failed' };
+        }
+        
+        // Create error object with status and parsed data
+        const error = new Error(errorData.message || 'Upload failed');
+        (error as any).status = response.status;
+        (error as any).data = errorData;
+        throw error;
       }
       return response.json();
     },
@@ -90,12 +120,46 @@ export default function Upload() {
       setPaymentFiles(null);
       setOrdersFiles(null);
     },
-    onError: () => {
-      toast({
-        title: "Upload failed",
-        description: "There was an error uploading your files.",
-        variant: "destructive",
-      });
+    onError: (error: any) => {
+      console.error('Upload error:', error);
+      
+      // Handle specific error cases
+      if (error.status === 429 || (error.data && error.data.code === 'MONTHLY_LIMIT_EXCEEDED')) {
+        // Monthly limit exceeded
+        toast({
+          title: "Monthly Upload Limit Reached",
+          description: error.data?.message || "You have reached your monthly upload limit. Please upgrade your plan or wait until next month to upload more files.",
+          variant: "destructive",
+        });
+      } else if (error.status === 413) {
+        // File too large
+        toast({
+          title: "File Too Large",
+          description: "The selected file is too large. Please choose a smaller file and try again.",
+          variant: "destructive",
+        });
+      } else if (error.status === 415) {
+        // Unsupported file type
+        toast({
+          title: "Unsupported File Type",
+          description: "Please upload only ZIP files for payments and CSV files for orders.",
+          variant: "destructive",
+        });
+      } else if (error.status === 401) {
+        // Authentication error
+        toast({
+          title: "Authentication Error",
+          description: "Your session has expired. Please log in again.",
+          variant: "destructive",
+        });
+      } else {
+        // Generic error
+        toast({
+          title: "Upload Failed",
+          description: error.message || "There was an error uploading your files. Please try again.",
+          variant: "destructive",
+        });
+      }
     },
   });
 
@@ -152,6 +216,47 @@ export default function Upload() {
       />
       
       <div className="flex-1 p-6">
+        {/* Usage Alerts */}
+        {usageData && typeof usageData.currentUsage === 'number' && typeof usageData.monthlyQuota === 'number' && (
+          <div className="mb-6">
+            {usageData.currentUsage >= usageData.monthlyQuota ? (
+              <Alert className="border-red-200 bg-red-50">
+                <AlertTriangle className="h-4 w-4 text-red-600" />
+                <AlertDescription className="text-red-800">
+                  <strong>Monthly Upload Limit Reached!</strong> You have used {usageData.currentUsage} of {usageData.monthlyQuota} uploads this month. 
+                  Please upgrade your plan or wait until next month to upload more files.
+                  {usageData.resetDate && (
+                    <span className="block mt-1 text-sm">
+                      Limit resets on: {new Date(usageData.resetDate).toLocaleDateString()}
+                    </span>
+                  )}
+                </AlertDescription>
+              </Alert>
+            ) : usageData.currentUsage >= usageData.monthlyQuota * 0.8 ? (
+              <Alert className="border-orange-200 bg-orange-50">
+                <AlertTriangle className="h-4 w-4 text-orange-600" />
+                <AlertDescription className="text-orange-800">
+                  <strong>Approaching Upload Limit!</strong> You have used {usageData.currentUsage} of {usageData.monthlyQuota} uploads this month. 
+                  Only {usageData.remainingUsage} uploads remaining.
+                  {usageData.resetDate && (
+                    <span className="block mt-1 text-sm">
+                      Limit resets on: {new Date(usageData.resetDate).toLocaleDateString()}
+                    </span>
+                  )}
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <Alert className="border-blue-200 bg-blue-50">
+                <Info className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-800">
+                  You have used {usageData.currentUsage} of {usageData.monthlyQuota} uploads this month. 
+                  {usageData.remainingUsage} uploads remaining.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+        )}
+
         {/* Upload Sections */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Payment Files Upload */}
@@ -234,11 +339,19 @@ export default function Upload() {
           <Button 
             size="lg"
             onClick={handleProcessFiles}
-            disabled={uploadMutation.isPending}
+            disabled={uploadMutation.isPending || (usageData && usageData.currentUsage >= usageData.monthlyQuota)}
             data-testid="button-process-files"
+            className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium shadow-lg hover:shadow-xl transition-all duration-200 px-8 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {uploadMutation.isPending ? 'Processing...' : 'Process Files'}
+            {uploadMutation.isPending ? 'Processing...' : 
+             (usageData && usageData.currentUsage >= usageData.monthlyQuota) ? 'Upload Limit Reached' : 
+             'Process Files'}
           </Button>
+          {usageData && usageData.currentUsage >= usageData.monthlyQuota && (
+            <p className="text-sm text-red-600 mt-2">
+              You have reached your monthly upload limit. Please upgrade your plan or wait until next month.
+            </p>
+          )}
         </div>
 
         {/* Upload History */}

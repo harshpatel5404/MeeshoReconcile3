@@ -20,9 +20,10 @@ const navigation = [
 interface HeaderProps {
   title: string;
   subtitle: string;
+  rightContent?: React.ReactNode;
 }
 
-export default function Header({ title, subtitle }: HeaderProps) {
+export default function Header({ title, subtitle, rightContent }: HeaderProps) {
   const [location] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -112,8 +113,8 @@ export default function Header({ title, subtitle }: HeaderProps) {
                             <div 
                               className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-sm font-medium cursor-pointer ${
                                 isActive 
-                                  ? 'bg-primary text-primary-foreground' 
-                                  : 'hover:bg-accent text-foreground'
+                                  ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg' 
+                                  : 'hover:bg-slate-100 text-slate-700'
                               }`}
                               onClick={() => setIsDrawerOpen(false)}
                               data-testid={`mobile-nav-${item.name.toLowerCase().replace(' ', '-')}`}
@@ -210,8 +211,8 @@ export default function Header({ title, subtitle }: HeaderProps) {
                   <div 
                     className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors text-sm font-medium cursor-pointer ${
                       isActive 
-                        ? 'bg-primary text-primary-foreground' 
-                        : 'hover:bg-accent text-foreground'
+                        ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg' 
+                        : 'hover:bg-slate-100 text-slate-700'
                     }`}
                     data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
                   >
@@ -319,6 +320,7 @@ export default function Header({ title, subtitle }: HeaderProps) {
             <p className="text-sm sm:text-base text-muted-foreground truncate" data-testid="page-subtitle">{subtitle}</p>
           </div>
           <div className="flex items-center gap-2 sm:gap-4 ml-4">
+            {rightContent}
             <Button variant="ghost" size="icon" data-testid="button-menu">
               <MoreHorizontal className="w-5 h-5" />
             </Button>

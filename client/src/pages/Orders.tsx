@@ -448,7 +448,7 @@ export default function Orders() {
             </div>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mt-4 gap-4">
               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                <Button onClick={handleApplyFilters} data-testid="button-apply-filters" className="w-full sm:w-auto">
+                <Button onClick={handleApplyFilters} data-testid="button-apply-filters" className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium shadow-lg hover:shadow-xl transition-all duration-200">
                   Apply Filters
                 </Button>
                 <Button variant="secondary" onClick={handleClearFilters} data-testid="button-clear-filters" className="w-full sm:w-auto">
