@@ -271,26 +271,61 @@ export class DatabaseStorage implements IStorage {
   async bulkUpsertProducts(productList: InsertProduct[]): Promise<Product[]> {
     if (productList.length === 0) return [];
     
+    // Deduplicate products by userId+sku to prevent multiple conflicts within the same batch
+    const uniqueProducts = productList.reduce((acc, product) => {
+      const key = `${product.userId}:${product.sku}`;
+      if (!acc.has(key)) {
+        acc.set(key, product);
+      }
+      return acc;
+    }, new Map<string, InsertProduct>());
+    
+    const deduplicatedList = Array.from(uniqueProducts.values());
+    
     try {
-      // Use ON CONFLICT to handle duplicates with upsert logic (for unique products per user)
-      return await db
+      // First, try inserting with ON CONFLICT DO NOTHING to avoid globalSku conflicts
+      const insertResult = await db
         .insert(products)
-        .values(productList)
-        .onConflictDoUpdate({
-          target: [products.userId, products.sku], // Use the new unique constraint
-          set: {
-            // Don't overwrite globalSku - keep it stable after first insert
-            title: sql.raw('excluded.title'),
-            costPrice: sql.raw('excluded.cost_price'),
-            packagingCost: sql.raw('excluded.packaging_cost'),
-            finalPrice: sql.raw('excluded.final_price'),
-            gstPercent: sql.raw('excluded.gst_percent'),
-            totalOrders: sql.raw('excluded.total_orders'),
-            isProcessed: sql.raw('excluded.is_processed'),
-            updatedAt: sql.raw('excluded.updated_at')
-          }
-        })
+        .values(deduplicatedList)
+        .onConflictDoNothing()
         .returning();
+
+      // For products that weren't inserted (due to conflicts), update them using the user+sku constraint
+      if (insertResult.length < deduplicatedList.length) {
+        const insertedIds = new Set(insertResult.map(p => `${p.userId}:${p.sku}`));
+        const conflictedProducts = deduplicatedList.filter(p => !insertedIds.has(`${p.userId}:${p.sku}`));
+        
+        if (conflictedProducts.length > 0) {
+          // Update existing products one by one to handle individual conflicts properly
+          const updateResults = [];
+          for (const product of conflictedProducts) {
+            try {
+              const updateResult = await db
+                .update(products)
+                .set({
+                  title: product.title,
+                  costPrice: product.costPrice,
+                  packagingCost: product.packagingCost,
+                  finalPrice: product.finalPrice,
+                  gstPercent: product.gstPercent,
+                  totalOrders: product.totalOrders,
+                  isProcessed: product.isProcessed,
+                  updatedAt: new Date()
+                })
+                .where(and(eq(products.userId, product.userId), eq(products.sku, product.sku)))
+                .returning();
+              
+              updateResults.push(...updateResult);
+            } catch (updateError) {
+              console.warn(`Failed to update product ${product.sku} for user ${product.userId}:`, updateError);
+            }
+          }
+          
+          return [...insertResult, ...updateResults];
+        }
+      }
+      
+      return insertResult;
     } catch (error) {
       console.error('Error during bulk product upsert:', error);
       throw new Error(`Failed to upsert products: ${error}`);

@@ -100,10 +100,10 @@ export default function Upload() {
   });
 
   const handleProcessFiles = async () => {
-    if (!paymentFiles && !ordersFiles) {
+    if (!paymentFiles || !ordersFiles) {
       toast({
-        title: "No files selected",
-        description: "Please select at least one file to process.",
+        title: "Both files required",
+        description: "Please select both a Payment ZIP file and an Orders CSV file to proceed.",
         variant: "destructive",
       });
       return;

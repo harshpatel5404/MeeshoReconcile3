@@ -1,6 +1,7 @@
 import { db } from '../db.js';
 import { users } from '../../shared/schema.js';
 import { eq, sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
 
 export interface UsageInfo {
   currentUsage: number;
@@ -72,22 +73,22 @@ export class UsageTracker {
       .update(users)
       .set({
         currentMonthUsage: sql`CASE 
-          WHEN EXTRACT(month FROM ${users.lastUsageReset}) != EXTRACT(month FROM ${now}) 
-            OR EXTRACT(year FROM ${users.lastUsageReset}) != EXTRACT(year FROM ${now})
+          WHEN EXTRACT(month FROM ${users.lastUsageReset}::timestamp) != EXTRACT(month FROM ${now}::timestamp) 
+            OR EXTRACT(year FROM ${users.lastUsageReset}::timestamp) != EXTRACT(year FROM ${now}::timestamp)
           THEN 1 
           ELSE ${users.currentMonthUsage} + 1 
         END`,
         lastUsageReset: sql`CASE 
-          WHEN EXTRACT(month FROM ${users.lastUsageReset}) != EXTRACT(month FROM ${now}) 
-            OR EXTRACT(year FROM ${users.lastUsageReset}) != EXTRACT(year FROM ${now})
+          WHEN EXTRACT(month FROM ${users.lastUsageReset}::timestamp) != EXTRACT(month FROM ${now}::timestamp) 
+            OR EXTRACT(year FROM ${users.lastUsageReset}::timestamp) != EXTRACT(year FROM ${now}::timestamp)
           THEN ${now}
           ELSE ${users.lastUsageReset}
         END`
       })
       .where(sql`${users.id} = ${userId} AND (
         CASE 
-          WHEN EXTRACT(month FROM ${users.lastUsageReset}) != EXTRACT(month FROM ${now}) 
-            OR EXTRACT(year FROM ${users.lastUsageReset}) != EXTRACT(year FROM ${now})
+          WHEN EXTRACT(month FROM ${users.lastUsageReset}::timestamp) != EXTRACT(month FROM ${now}::timestamp) 
+            OR EXTRACT(year FROM ${users.lastUsageReset}::timestamp) != EXTRACT(year FROM ${now}::timestamp)
           THEN 1 
           ELSE ${users.currentMonthUsage} + 1 
         END
@@ -134,14 +135,12 @@ export class UsageTracker {
    * Generate a deterministic unique global SKU for a product
    */
   static generateGlobalSku(userId: string, originalSku: string): string {
-    const crypto = require('crypto');
-    
     // Normalize the SKU for consistency
     const normalizedSku = originalSku.toLowerCase().replace(/[^a-z0-9]/g, '');
     
     // Create a deterministic hash from userId and normalized SKU
     const input = `${userId}:${normalizedSku}`;
-    const hash = crypto.createHash('sha256').update(input).digest('hex');
+    const hash = createHash('sha256').update(input).digest('hex');
     
     // Take first 16 characters for readability while maintaining uniqueness
     const hashPrefix = hash.substring(0, 16).toUpperCase();
