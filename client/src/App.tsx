@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import Footer from "@/components/Footer";
 import Dashboard from "@/pages/Dashboard";
 import Upload from "@/pages/Upload";
 import Orders from "@/pages/Orders";
@@ -14,8 +15,11 @@ import NotFound from "@/pages/not-found";
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background">
-      {children}
+    <div className="min-h-screen bg-background flex flex-col">
+      <div className="flex-1">
+        {children}
+      </div>
+      <Footer />
     </div>
   );
 }

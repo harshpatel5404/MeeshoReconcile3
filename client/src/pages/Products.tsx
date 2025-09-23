@@ -235,6 +235,7 @@ export default function Products() {
                   onClick={() => updateAllCostsMutation.mutate()}
                   disabled={updateAllCostsMutation.isPending}
                   data-testid="button-update-all-products"
+                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium shadow-lg hover:shadow-xl transition-all duration-200"
                 >
                   {updateAllCostsMutation.isPending ? 'Updating...' : 'Update Dashboard & Product Costs'}
                 </Button>
@@ -260,7 +261,7 @@ export default function Products() {
                     onClick={handleBulkSetCost}
                     disabled={bulkUpdateMutation.isPending}
                     data-testid="button-bulk-set-cost"
-                    className="whitespace-nowrap"
+                    className="whitespace-nowrap border-blue-200 text-blue-700 hover:bg-blue-50 hover:border-blue-300 transition-all duration-200"
                   >
                     Apply to All
                   </Button>
@@ -283,7 +284,7 @@ export default function Products() {
                     onClick={handleBulkSetPackaging}
                     disabled={bulkUpdateMutation.isPending}
                     data-testid="button-bulk-set-packaging"
-                    className="whitespace-nowrap"
+                    className="whitespace-nowrap border-purple-200 text-purple-700 hover:bg-purple-50 hover:border-purple-300 transition-all duration-200"
                   >
                     Apply to All
                   </Button>
