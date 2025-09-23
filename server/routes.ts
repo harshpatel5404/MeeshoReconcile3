@@ -4,6 +4,7 @@ import multer from "multer";
 import { storage } from "./storage";
 import { verifyFirebaseToken } from "./services/firebase";
 import { FileProcessor } from "./services/fileProcessor";
+import { UsageTracker } from "./services/usageTracker";
 import { insertUserSchema, insertProductSchema, OrderDynamic } from "@shared/schema";
 
 // Multer configuration for file uploads
@@ -534,14 +535,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check usage limits before processing
-      const usageSummary = await storage.getUsageSummary(userId);
-      if (usageSummary.used >= usageSummary.limit) {
-        const resetDate = new Date(usageSummary.periodEnd);
+      const usageInfo = await UsageTracker.canUserProcess(userId);
+      if (!usageInfo.canProcess) {
         return res.status(429).json({ 
-          message: `Monthly upload limit reached. You have used ${usageSummary.used}/${usageSummary.limit} uploads this month.`,
-          used: usageSummary.used,
-          limit: usageSummary.limit,
-          resetAt: resetDate.toISOString()
+          message: `Monthly upload limit reached. You have used ${usageInfo.currentUsage}/${usageInfo.monthlyQuota} uploads this month. Quota resets on ${usageInfo.resetDate.toDateString()}.`,
+          used: usageInfo.currentUsage,
+          limit: usageInfo.monthlyQuota,
+          remaining: usageInfo.remainingUsage,
+          resetAt: usageInfo.resetDate.toISOString()
         });
       }
 
@@ -592,6 +593,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(orders);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch orders' });
+    }
+  });
+
+  // Account/Usage routes
+  app.get('/api/account/usage', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+
+      const usageInfo = await UsageTracker.getUsageInfo(userId);
+      res.json(usageInfo);
+    } catch (error) {
+      console.error('Failed to fetch usage info:', error);
+      res.status(500).json({ message: 'Failed to fetch usage information' });
     }
   });
 
@@ -799,14 +816,16 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
         );
         
         if (productsDynamic.length > 0 && userId) {
-          // Convert dynamic products to regular products with userId
+          // Convert dynamic products to regular products with userId and unique global SKUs
           const productsToSave = productsDynamic.map(product => ({
             userId,
             sku: product.sku,
+            globalSku: UsageTracker.generateGlobalSku(userId, product.sku),
             title: (product.dynamicData as any)?.['Product Name'] || product.sku,
             costPrice: (product.dynamicData as any)?.['Cost Price'] || '0',
             packagingCost: (product.dynamicData as any)?.['Packaging Cost'] || '0',
-            gstPercent: (product.dynamicData as any)?.['GST %'] || '5'
+            gstPercent: (product.dynamicData as any)?.['GST %'] || '5',
+            isProcessed: true
           }));
           
           // Use bulk upsert to merge based on unique SKU per user
@@ -867,6 +886,16 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
 
       await storage.updateUploadStatus(uploadId, 'processed', recordsProcessed, dynamicResult.errors);
       
+      // Record usage after successful CSV orders processing
+      if (userId) {
+        try {
+          await UsageTracker.recordUsage(userId);
+          console.log(`Usage recorded for user ${userId} after CSV orders processing`);
+        } catch (error) {
+          console.error('Error recording usage:', error);
+        }
+      }
+      
     } else if (fileType === 'payment_zip') {
       // Use ENHANCED ZIP processing method for 42-column XLSX files
       const { ZIPProcessor } = await import('./services/zipProcessor');
@@ -909,6 +938,16 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
         
         await storage.updateUploadStatus(uploadId, 'processed', result.payments.length, result.errors);
         
+        // Record usage after successful ZIP processing
+        if (userId) {
+          try {
+            await UsageTracker.recordUsage(userId);
+            console.log(`Usage recorded for user ${userId} after ZIP processing`);
+          } catch (error) {
+            console.error('Error recording usage:', error);
+          }
+        }
+        
         // Trigger real-time calculation update for payments
         await storage.recalculateAllMetrics(uploadId);
         console.log(`Processed ${result.payments.length} payments from ZIP file`);
@@ -923,6 +962,17 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
           await updateOrdersWithPaymentData(fallbackResult.payments);
           
           await storage.updateUploadStatus(uploadId, 'processed', fallbackResult.payments.length, [...(result?.errors || []), ...(fallbackResult.errors || [])]);
+          
+          // Record usage after successful fallback XLSX processing
+          if (userId) {
+            try {
+              await UsageTracker.recordUsage(userId);
+              console.log(`Usage recorded for user ${userId} after fallback XLSX processing`);
+            } catch (error) {
+              console.error('Error recording usage:', error);
+            }
+          }
+          
           await storage.recalculateAllMetrics(uploadId);
           console.log(`Processed ${fallbackResult.payments.length} payments from direct XLSX`);
         }
@@ -941,15 +991,20 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
         // Replace all existing products for this upload
         await storage.replaceAllProductsDynamic(uploadId, productsDynamic);
         
-        // Also save to regular products table with userId for future usage
-        const productsToSave = dynamicResult.data.map(row => ({
-          userId,
-          sku: row['SKU'] || row['sku'] || '',
-          title: row['Product Name'] || row['Title'] || row['Name'] || row['SKU'] || row['sku'] || '',
-          costPrice: row['Cost Price'] || row['Cost'] || '0',
-          packagingCost: row['Packaging Cost'] || row['Packaging'] || '0',
-          gstPercent: row['GST %'] || row['GST'] || '5'
-        }));
+        // Also save to regular products table with userId and unique global SKUs
+        const productsToSave = dynamicResult.data.map(row => {
+          const sku = row['SKU'] || row['sku'] || '';
+          return {
+            userId,
+            sku: sku,
+            globalSku: UsageTracker.generateGlobalSku(userId, sku),
+            title: row['Product Name'] || row['Title'] || row['Name'] || sku,
+            costPrice: row['Cost Price'] || row['Cost'] || '0',
+            packagingCost: row['Packaging Cost'] || row['Packaging'] || '0',
+            gstPercent: row['GST %'] || row['GST'] || '5',
+            isProcessed: true
+          };
+        });
         
         // Use bulk upsert to merge based on unique SKU per user
         await storage.bulkUpsertProducts(productsToSave);
@@ -969,6 +1024,16 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
       }
 
       await storage.updateUploadStatus(uploadId, 'processed', recordsProcessed, dynamicResult.errors);
+      
+      // Record usage after successful products CSV processing
+      if (userId) {
+        try {
+          await UsageTracker.recordUsage(userId);
+          console.log(`Usage recorded for user ${userId} after products CSV processing`);
+        } catch (error) {
+          console.error('Error recording usage:', error);
+        }
+      }
     }
   } catch (error) {
     console.error(`File processing error for upload ${uploadId}:`, error);

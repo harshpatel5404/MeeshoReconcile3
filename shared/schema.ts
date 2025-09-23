@@ -10,6 +10,8 @@ export const users = pgTable("users", {
   displayName: text("display_name"),
   photoURL: text("photo_url"),
   monthlyQuota: integer("monthly_quota").default(10),
+  currentMonthUsage: integer("current_month_usage").default(0),
+  lastUsageReset: timestamp("last_usage_reset").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -17,17 +19,20 @@ export const products = pgTable("products", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
   sku: text("sku").notNull(),
+  globalSku: text("global_sku").unique(), // Unique SKU across all users
   title: text("title").notNull(),
   costPrice: decimal("cost_price", { precision: 10, scale: 2 }).default("0"),
   packagingCost: decimal("packaging_cost", { precision: 10, scale: 2 }).default("0"),
   finalPrice: decimal("final_price", { precision: 10, scale: 2 }).default("0"),
   gstPercent: decimal("gst_percent", { precision: 5, scale: 2 }).default("5"),
   totalOrders: integer("total_orders").default(0),
+  isProcessed: boolean("is_processed").default(false), // Mark products processed from uploads
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => {
   return {
     uniqueUserSku: unique().on(table.userId, table.sku),
     userUpdatedAtIdx: index("products_user_updated_at_idx").on(table.userId, table.updatedAt),
+    globalSkuIdx: index("products_global_sku_idx").on(table.globalSku),
   };
 });
 

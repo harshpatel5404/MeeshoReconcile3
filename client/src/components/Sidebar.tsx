@@ -6,7 +6,8 @@ import {
   Package, 
   Calculator,
   LogOut,
-  AlertTriangle
+  AlertTriangle,
+  User
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { logOut } from '@/lib/firebase';
@@ -19,6 +20,7 @@ const navigation = [
   { name: 'Upload Files', href: '/upload', icon: Upload },
   { name: 'Orders', href: '/orders', icon: FileText },
   { name: 'Products', href: '/products', icon: Package },
+  { name: 'Account', href: '/account', icon: User },
   { name: 'Reconciliation', href: '/reconciliation', icon: Calculator },
 ];
 
@@ -29,12 +31,18 @@ export default function Sidebar() {
 
   // Fetch usage data
   const { data: usage } = useAuthQuery({
-    queryKey: ['/api/users/me/usage'],
+    queryKey: ['/api/account/usage'],
     refetchInterval: 30000, // Refetch every 30 seconds
   });
 
   // Type guard for usage data
-  const usageData = usage as { used: number; limit: number; periodStart: string; periodEnd: string } | undefined;
+  const usageData = usage as { 
+    currentUsage: number; 
+    monthlyQuota: number; 
+    remainingUsage: number; 
+    canProcess: boolean; 
+    resetDate: string; 
+  } | undefined;
 
   const handleLogout = async () => {
     try {
@@ -119,31 +127,31 @@ export default function Sidebar() {
         </div>
         
         {/* Usage Limits */}
-        {usageData && typeof usageData.used === 'number' && typeof usageData.limit === 'number' && (
+        {usageData && typeof usageData.currentUsage === 'number' && typeof usageData.monthlyQuota === 'number' && (
           <div className="mb-3 p-3 bg-accent/50 rounded-md">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-muted-foreground">File Uploads</span>
-              <span className="text-xs text-muted-foreground">
-                {usageData.used}/{usageData.limit}
+              <span className="text-xs font-medium text-muted-foreground">Monthly Uploads</span>
+              <span className="text-xs text-muted-foreground font-mono">
+                {usageData.currentUsage}/{usageData.monthlyQuota}
               </span>
             </div>
             <Progress 
-              value={(usageData.used / usageData.limit) * 100} 
+              value={(usageData.currentUsage / usageData.monthlyQuota) * 100} 
               className="h-2 mb-2"
             />
-            {usageData.used >= usageData.limit ? (
+            {usageData.currentUsage >= usageData.monthlyQuota ? (
               <div className="flex items-center gap-1 text-xs text-destructive">
                 <AlertTriangle className="w-3 h-3" />
                 <span>Limit reached</span>
               </div>
-            ) : usageData.used >= usageData.limit * 0.8 ? (
+            ) : usageData.currentUsage >= usageData.monthlyQuota * 0.8 ? (
               <div className="flex items-center gap-1 text-xs text-orange-600">
                 <AlertTriangle className="w-3 h-3" />
                 <span>Approaching limit</span>
               </div>
             ) : (
               <span className="text-xs text-muted-foreground">
-                {usageData.limit - usageData.used} uploads remaining
+                {usageData.remainingUsage} uploads remaining
               </span>
             )}
           </div>

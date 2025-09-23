@@ -9,6 +9,7 @@ import Dashboard from "@/pages/Dashboard";
 import Upload from "@/pages/Upload";
 import Orders from "@/pages/Orders";
 import Products from "@/pages/Products";
+import Account from "@/pages/Account";
 import NotFound from "@/pages/not-found";
 
 function AppLayout({ children }: { children: React.ReactNode }) {
@@ -26,6 +27,7 @@ function Router() {
       <Route path="/upload" component={Upload} />
       <Route path="/orders" component={Orders} />
       <Route path="/products" component={Products} />
+      <Route path="/account" component={Account} />
       <Route component={NotFound} />
     </Switch>
   );

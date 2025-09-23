@@ -279,12 +279,14 @@ export class DatabaseStorage implements IStorage {
         .onConflictDoUpdate({
           target: [products.userId, products.sku], // Use the new unique constraint
           set: {
+            // Don't overwrite globalSku - keep it stable after first insert
             title: sql.raw('excluded.title'),
             costPrice: sql.raw('excluded.cost_price'),
             packagingCost: sql.raw('excluded.packaging_cost'),
             finalPrice: sql.raw('excluded.final_price'),
             gstPercent: sql.raw('excluded.gst_percent'),
             totalOrders: sql.raw('excluded.total_orders'),
+            isProcessed: sql.raw('excluded.is_processed'),
             updatedAt: sql.raw('excluded.updated_at')
           }
         })
