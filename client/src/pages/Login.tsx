@@ -105,7 +105,7 @@ export default function Login() {
               </svg>
             </div>
           </div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">MeeshoReconcile</h1>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">ReconMe</h1>
           <p className="text-slate-600">Smart Payment Reconciliation Platform</p>
         </div>
         

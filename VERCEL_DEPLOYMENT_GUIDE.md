@@ -1,6 +1,6 @@
-# 🚀 MeeshoReconcile - Vercel Deployment Guide
+# 🚀 ReconMe - Vercel Deployment Guide
 
-This guide will walk you through deploying your MeeshoReconcile application to Vercel step by step.
+This guide will walk you through deploying your ReconMe application to Vercel step by step.
 
 ## 📋 Prerequisites
 
@@ -396,7 +396,7 @@ After successful deployment, verify:
 
 - ✅ Login page loads with modern design
 - ✅ Google sign-in works with proper logo
-- ✅ MeeshoReconcile logo displays correctly
+- ✅ ReconMe logo displays correctly
 - ✅ Dashboard shows all analytics
 - ✅ File upload processes correctly
 - ✅ Orders page displays and filters work
@@ -424,7 +424,7 @@ If you encounter issues:
 
 ---
 
-**🎊 Congratulations!** Your MeeshoReconcile application is now live on Vercel with modern UI, Google authentication, and comprehensive functionality!
+**🎊 Congratulations!** Your ReconMe application is now live on Vercel with modern UI, Google authentication, and comprehensive functionality!
 
 **Live URL**: `https://your-project-name.vercel.app`
 

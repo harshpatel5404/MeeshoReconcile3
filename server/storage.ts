@@ -108,26 +108,26 @@ export interface IStorage {
   invalidateCalculationCacheByUpload(uploadId: string): Promise<void>;
 
   // Analytics
-  getDashboardSummary(): Promise<DashboardSummary>;
-  getRevenueTrend(): Promise<RevenueTrendData[]>;
-  getOrderStatusDistribution(): Promise<OrderStatusData[]>;
+  getDashboardSummary(userId: string): Promise<DashboardSummary>;
+  getRevenueTrend(userId: string): Promise<RevenueTrendData[]>;
+  getOrderStatusDistribution(userId: string): Promise<OrderStatusData[]>;
   
   // Enhanced Analytics
-  getComprehensiveFinancialSummary(): Promise<ComprehensiveFinancialSummary>;
-  getSettlementComponents(): Promise<SettlementComponentsData[]>;
-  getEarningsOverview(): Promise<EarningsOverviewData[]>;
-  getOperationalCosts(): Promise<OperationalCostsData[]>;
-  getDailyVolumeAndAOV(): Promise<DailyVolumeData[]>;
-  getTopPerformingProducts(): Promise<TopProductsData[]>;
-  getTopReturnProducts(): Promise<TopReturnsData[]>;
+  getComprehensiveFinancialSummary(userId: string): Promise<ComprehensiveFinancialSummary>;
+  getSettlementComponents(userId: string): Promise<SettlementComponentsData[]>;
+  getEarningsOverview(userId: string): Promise<EarningsOverviewData[]>;
+  getOperationalCosts(userId: string): Promise<OperationalCostsData[]>;
+  getDailyVolumeAndAOV(userId: string): Promise<DailyVolumeData[]>;
+  getTopPerformingProducts(userId: string): Promise<TopProductsData[]>;
+  getTopReturnProducts(userId: string): Promise<TopReturnsData[]>;
   
   // Orders Overview Analytics (separate from Order Status chart)
-  getOrdersOverview(): Promise<OrdersOverview>;
+  getOrdersOverview(userId: string): Promise<OrdersOverview>;
 
   // Live Dashboard Metrics
-  getLiveDashboardMetrics(): Promise<LiveDashboardMetrics>;
-  calculateRealTimeMetrics(): Promise<LiveDashboardMetrics>;
-  recalculateAllMetrics(triggerUploadId?: string): Promise<void>;
+  getLiveDashboardMetrics(userId: string): Promise<LiveDashboardMetrics>;
+  calculateRealTimeMetrics(userId: string): Promise<LiveDashboardMetrics>;
+  recalculateAllMetrics(triggerUploadId?: string, userId?: string): Promise<void>;
   getCurrentUploads(): Promise<Upload[]>;
 }
 
@@ -699,17 +699,22 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async getDashboardSummary(): Promise<DashboardSummary> {
-    // Get order analytics
+  async getDashboardSummary(userId: string): Promise<DashboardSummary> {
+    // Get order analytics from user-specific uploads
     const [orderStats] = await db
       .select({
-        totalOrders: count(orders.id),
-        totalRevenue: sum(orders.discountedPrice),
-        avgOrderValue: sql<number>`avg(${orders.discountedPrice})`,
+        totalOrders: count(ordersDynamic.id),
+        totalRevenue: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL))`,
+        avgOrderValue: sql<number>`AVG(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL))`,
       })
-      .from(orders);
+      .from(ordersDynamic)
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true)
+      ));
 
-    // Get payment analytics
+    // Get payment analytics from user-specific data
     const [paymentStats] = await db
       .select({
         totalSettlements: count(payments.id),
@@ -717,7 +722,13 @@ export class DatabaseStorage implements IStorage {
         totalCommissionFees: sum(payments.commissionFee),
         totalGatewayFees: sum(payments.paymentGatewayFee),
       })
-      .from(payments);
+      .from(payments)
+      .where(sql`${payments.subOrderNo} IN (
+        SELECT DISTINCT ${ordersDynamic.dynamicData}->>'Sub Order No' 
+        FROM ${ordersDynamic} 
+        INNER JOIN ${uploads} ON ${ordersDynamic.uploadId} = ${uploads.id}
+        WHERE ${uploads.uploadedBy} = ${userId} AND ${uploads.isCurrentVersion} = true
+      )`);
 
     // Calculate metrics
     const totalOrders = orderStats?.totalOrders || 0;
@@ -738,11 +749,16 @@ export class DatabaseStorage implements IStorage {
 
     const [oldOrderStats] = await db
       .select({
-        oldTotalOrders: count(orders.id),
-        oldTotalRevenue: sum(orders.discountedPrice),
+        oldTotalOrders: count(ordersDynamic.id),
+        oldTotalRevenue: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL))`,
       })
-      .from(orders)
-      .where(lte(orders.orderDate, thirtyDaysAgo));
+      .from(ordersDynamic)
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true),
+        sql`CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE) <= ${thirtyDaysAgo}`
+      ));
 
     const oldTotalOrders = oldOrderStats?.oldTotalOrders || 0;
     const oldTotalRevenue = Number(oldOrderStats?.oldTotalRevenue || 0);
@@ -762,8 +778,8 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getRevenueTrend(): Promise<RevenueTrendData[]> {
-    // Get daily revenue and order count data for the last 30 days from dynamic data (uploaded files)
+  async getRevenueTrend(userId: string): Promise<RevenueTrendData[]> {
+    // Get daily revenue and order count data for the last 30 days from user-specific uploads
     const dailyData = await db
       .select({
         date: sql<string>`CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE)`,
@@ -771,8 +787,12 @@ export class DatabaseStorage implements IStorage {
         orders: count(ordersDynamic.id)
       })
       .from(ordersDynamic)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true) 
-                 AND CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE) >= CURRENT_DATE - INTERVAL '30 days'`)
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true),
+        sql`CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE) >= CURRENT_DATE - INTERVAL '30 days'`
+      ))
       .groupBy(sql`CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE)`)
       .orderBy(sql`CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE)`);
 
@@ -784,15 +804,19 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getOrderStatusDistribution(): Promise<OrderStatusData[]> {
-    // Get order status distribution from dynamic data (uploaded files)
+  async getOrderStatusDistribution(userId: string): Promise<OrderStatusData[]> {
+    // Get order status distribution from user-specific uploads
     const statusData = await db
       .select({
         status: sql<string>`${ordersDynamic.dynamicData}->>'Reason for Credit Entry'`,
         count: count(ordersDynamic.id)
       })
       .from(ordersDynamic)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`)
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true)
+      ))
       .groupBy(sql`${ordersDynamic.dynamicData}->>'Reason for Credit Entry'`);
 
      const statusMapping: Record<string, { name: string; color: string }> = {
@@ -817,8 +841,8 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async getComprehensiveFinancialSummary(): Promise<ComprehensiveFinancialSummary> {
-    // Get order analytics from dynamic data (uploaded files) - use current version uploads only
+  async getComprehensiveFinancialSummary(userId: string): Promise<ComprehensiveFinancialSummary> {
+    // Get order analytics from user-specific uploads
     const [orderStats] = await db
       .select({
         totalOrders: count(ordersDynamic.id),
@@ -831,9 +855,13 @@ export class DatabaseStorage implements IStorage {
         returns: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') IN ('RETURN', 'RETURNED', 'REFUND', 'RTO', 'RTO_COMPLETE') then 1 end)`,
       })
       .from(ordersDynamic)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true)
+      ));
 
-    // Get payment settlement data - only from payments linked to current upload orders
+    // Get payment settlement data from user-specific data
     const [paymentStats] = await db
       .select({
         settlementAmount: sum(payments.settlementAmount),
@@ -846,10 +874,11 @@ export class DatabaseStorage implements IStorage {
       .where(sql`${payments.subOrderNo} IN (
         SELECT DISTINCT ${ordersDynamic.dynamicData}->>'Sub Order No' 
         FROM ${ordersDynamic} 
-        WHERE ${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)
+        INNER JOIN ${uploads} ON ${ordersDynamic.uploadId} = ${uploads.id}
+        WHERE ${uploads.uploadedBy} = ${userId} AND ${uploads.isCurrentVersion} = true
       )`);
 
-    // Get product cost data from dynamic tables (uploaded file data)
+    // Get product cost data from user-specific uploads
     const [productCosts] = await db
       .select({
         totalPurchaseCost: sql<number>`
@@ -866,9 +895,13 @@ export class DatabaseStorage implements IStorage {
         `,
       })
       .from(ordersDynamic)
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
       .leftJoin(productsDynamic, sql`${ordersDynamic.dynamicData}->>'SKU' = ${productsDynamic.sku} 
-                                     AND ${productsDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true AND file_type LIKE '%orders%')`)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+                                     AND ${productsDynamic.uploadId} = ${uploads.id}`)
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true)
+      ));
 
     // Calculate metrics
     const totalOrders = orderStats?.totalOrders || 0;
@@ -904,14 +937,19 @@ export class DatabaseStorage implements IStorage {
     const totalFees = totalCommissionFees + totalGatewayFees + totalFixedFees + totalAdsFees + estimatedCommission;
     const netProfit = settlementAmount - (totalPurchaseCost + totalPackagingCost + shippingCost + totalTds + estimatedCommission);
 
-    // Orders awaiting payment record (orders without corresponding payments) - use dynamic data
+    // Orders awaiting payment record from user-specific data
     const [ordersWithoutPayments] = await db
       .select({
         count: count(ordersDynamic.id)
       })
       .from(ordersDynamic)
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
       .leftJoin(payments, sql`${ordersDynamic.dynamicData}->>'subOrderNo' = ${payments.subOrderNo}`)
-      .where(sql`${payments.id} IS NULL AND ${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true),
+        sql`${payments.id} IS NULL`
+      ));
 
     return {
       totalSaleAmount,
@@ -933,8 +971,8 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getSettlementComponents(): Promise<SettlementComponentsData[]> {
-    // Get actual payment data from XLSX files (following DASHBOARD_CALCULATION_GUIDE.md)
+  async getSettlementComponents(userId: string): Promise<SettlementComponentsData[]> {
+    // Get actual payment data from user-specific data
     const [paymentData] = await db
       .select({
         totalSaleAmount: sql<number>`SUM(CASE WHEN ${payments.orderValue} > 0 THEN ${payments.orderValue} ELSE 0 END)`,
@@ -946,9 +984,15 @@ export class DatabaseStorage implements IStorage {
         finalSettlement: sum(payments.settlementAmount),
         recordCount: count(payments.id)
       })
-      .from(payments);
+      .from(payments)
+      .where(sql`${payments.subOrderNo} IN (
+        SELECT DISTINCT ${ordersDynamic.dynamicData}->>'Sub Order No' 
+        FROM ${ordersDynamic} 
+        INNER JOIN ${uploads} ON ${ordersDynamic.uploadId} = ${uploads.id}
+        WHERE ${uploads.uploadedBy} = ${userId} AND ${uploads.isCurrentVersion} = true
+      )`);
 
-    // Get order data for shipping calculations
+    // Get order data for shipping calculations from user-specific uploads
     const [orderData] = await db
       .select({
         totalOrders: count(ordersDynamic.id),
@@ -957,7 +1001,11 @@ export class DatabaseStorage implements IStorage {
         totalSaleValue: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL) * CAST(${ordersDynamic.dynamicData}->>'Quantity' AS INTEGER))`,
       })
       .from(ordersDynamic)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true)
+      ));
 
     const totalSaleAmount = Number(paymentData?.totalSaleAmount || orderData?.totalSaleValue || 0);
     const totalReturnAmount = Number(paymentData?.totalReturnAmount || 0);
@@ -992,8 +1040,8 @@ export class DatabaseStorage implements IStorage {
     ];
   }
 
-  async getEarningsOverview(): Promise<EarningsOverviewData[]> {
-    // Get settlement income (following DASHBOARD_CALCULATION_GUIDE.md)
+  async getEarningsOverview(userId: string): Promise<EarningsOverviewData[]> {
+    // Get settlement income from user-specific data
     const [settlementData] = await db
       .select({
         finalSettlement: sum(payments.settlementAmount),
@@ -1002,9 +1050,15 @@ export class DatabaseStorage implements IStorage {
         totalGatewayFees: sum(payments.paymentGatewayFee),
         totalFixedFees: sum(payments.fixedFee),
       })
-      .from(payments);
+      .from(payments)
+      .where(sql`${payments.subOrderNo} IN (
+        SELECT DISTINCT ${ordersDynamic.dynamicData}->>'Sub Order No' 
+        FROM ${ordersDynamic} 
+        INNER JOIN ${uploads} ON ${ordersDynamic.uploadId} = ${uploads.id}
+        WHERE ${uploads.uploadedBy} = ${userId} AND ${uploads.isCurrentVersion} = true
+      )`);
 
-    // Get order volume for cost calculations
+    // Get order volume for cost calculations from user-specific uploads
     const [orderData] = await db
       .select({
         totalOrders: count(ordersDynamic.id),
@@ -1012,7 +1066,11 @@ export class DatabaseStorage implements IStorage {
         deliveredOrders: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') = 'DELIVERED' then 1 end)`,
       })
       .from(ordersDynamic)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true)
+      ));
 
     const finalSettlement = Number(settlementData?.finalSettlement || 0);
     const totalSaleValue = Number(orderData?.totalSaleValue || 0);
@@ -1045,8 +1103,8 @@ export class DatabaseStorage implements IStorage {
     ];
   }
 
-  async getOperationalCosts(): Promise<OperationalCostsData[]> {
-    // Get detailed cost breakdown from payment data (following DASHBOARD_CALCULATION_GUIDE.md)
+  async getOperationalCosts(userId: string): Promise<OperationalCostsData[]> {
+    // Get detailed cost breakdown from user-specific payment data
     const [costsData] = await db
       .select({
         commissionFees: sum(payments.commissionFee),
@@ -1056,9 +1114,15 @@ export class DatabaseStorage implements IStorage {
         // Note: Warehousing, compensation, claims, recovery would come from 
         // additional columns if available in the payment processing
       })
-      .from(payments);
+      .from(payments)
+      .where(sql`${payments.subOrderNo} IN (
+        SELECT DISTINCT ${ordersDynamic.dynamicData}->>'Sub Order No' 
+        FROM ${ordersDynamic} 
+        INNER JOIN ${uploads} ON ${ordersDynamic.uploadId} = ${uploads.id}
+        WHERE ${uploads.uploadedBy} = ${userId} AND ${uploads.isCurrentVersion} = true
+      )`);
 
-    // Get order data for operational metrics
+    // Get order data for operational metrics from user-specific uploads
     const [orderMetrics] = await db
       .select({
         totalOrders: count(ordersDynamic.id),
@@ -1066,7 +1130,11 @@ export class DatabaseStorage implements IStorage {
         cancelledOrders: sql<number>`count(case when UPPER(${ordersDynamic.dynamicData}->>'Reason for Credit Entry') = 'CANCELLED' then 1 end)`,
       })
       .from(ordersDynamic)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true)
+      ));
 
     const commissionFees = Number(costsData?.commissionFees || 0);
     const fixedFees = Number(costsData?.fixedFees || 0);
@@ -1097,7 +1165,7 @@ export class DatabaseStorage implements IStorage {
     ];
   }
 
-  async getDailyVolumeAndAOV(): Promise<DailyVolumeData[]> {
+  async getDailyVolumeAndAOV(userId: string): Promise<DailyVolumeData[]> {
     const dailyData = await db
       .select({
         date: sql<string>`DATE(CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`,
@@ -1105,8 +1173,12 @@ export class DatabaseStorage implements IStorage {
         totalRevenue: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'Supplier Discounted Price (Incl GST and Commision)' AS DECIMAL))`,
       })
       .from(ordersDynamic)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true) 
-                 AND CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE) >= CURRENT_DATE - INTERVAL '30 days'`)
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true),
+        sql`CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE) >= CURRENT_DATE - INTERVAL '30 days'`
+      ))
       .groupBy(sql`DATE(CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`)
       .orderBy(sql`DATE(CAST(${ordersDynamic.dynamicData}->>'Order Date' AS DATE))`);
 
@@ -1117,7 +1189,7 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getTopPerformingProducts(): Promise<TopProductsData[]> {
+  async getTopPerformingProducts(userId: string): Promise<TopProductsData[]> {
     // Group by normalized SKU and include ALL orders (not just delivered) to show top performing products by total order count
     const topProducts = await db
       .select({
@@ -1128,9 +1200,13 @@ export class DatabaseStorage implements IStorage {
         totalQuantity: sql<number>`SUM(CAST(COALESCE(${ordersDynamic.dynamicData}->>'Quantity', ${ordersDynamic.dynamicData}->>'quantity', ${ordersDynamic.dynamicData}->>'Qty', '1') AS INTEGER))`,
       })
       .from(ordersDynamic)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)
-                 AND TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) IS NOT NULL
-                 AND TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) != ''`)
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true),
+        sql`TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) IS NOT NULL`,
+        sql`TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) != ''`
+      ))
       .groupBy(sql`LOWER(TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku'))) `)
       .orderBy(desc(count(ordersDynamic.id)))
       .limit(10);
@@ -1144,7 +1220,7 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getTopReturnProducts(): Promise<TopReturnsData[]> {
+  async getTopReturnProducts(userId: string): Promise<TopReturnsData[]> {
     // Group by normalized SKU and count combined Returns + RTOs per guide
     const topReturns = await db
       .select({
@@ -1155,9 +1231,13 @@ export class DatabaseStorage implements IStorage {
         totalCount: count(ordersDynamic.id),
       })
       .from(ordersDynamic)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)
-                 AND TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) IS NOT NULL
-                 AND TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) != ''`)
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true),
+        sql`TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) IS NOT NULL`,
+        sql`TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku')) != ''`
+      ))
       .groupBy(sql`LOWER(TRIM(COALESCE(${ordersDynamic.dynamicData}->>'SKU', ${ordersDynamic.dynamicData}->>'sku'))) `)
       .having(sql`count(case when UPPER(COALESCE(${ordersDynamic.dynamicData}->>'Reason for Credit Entry','')) IN ('RETURN', 'RETURNED', 'REFUND', 'RTO', 'RTO_COMPLETE', 'RTO_LOCKED') then 1 end) > 0`)
       .orderBy(sql`count(case when UPPER(COALESCE(${ordersDynamic.dynamicData}->>'Reason for Credit Entry','')) IN ('RETURN', 'RETURNED', 'REFUND', 'RTO', 'RTO_COMPLETE', 'RTO_LOCKED') then 1 end) DESC`)
@@ -1172,15 +1252,15 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getOrdersOverview(): Promise<OrdersOverview> {
+  async getOrdersOverview(userId: string): Promise<OrdersOverview> {
     try {
-      // Try to get from cache first
-      const cached = await this.getCalculationCache('orders_overview');
+      // Try to get from cache first with user-specific cache key
+      const cached = await this.getCalculationCache(`orders_overview_${userId}`);
       if (cached && (Date.now() - new Date(cached.lastUpdated).getTime()) < 10 * 60 * 1000) {
         return cached.calculationResult as OrdersOverview;
       }
 
-      // Get payment status for each sub order number (aggregated to handle multiple payments)
+      // Get payment status for each sub order number from user-specific data only
       const paymentStatusMap = new Map<string, boolean>();
       const paymentData = await db
         .select({
@@ -1188,13 +1268,19 @@ export class DatabaseStorage implements IStorage {
           hasPayment: sql<boolean>`COUNT(*) > 0 AND SUM(CASE WHEN COALESCE(${payments.settlementAmount}, 0) > 0 THEN 1 ELSE 0 END) > 0`,
         })
         .from(payments)
+        .where(sql`${payments.subOrderNo} IN (
+          SELECT DISTINCT ${ordersDynamic.dynamicData}->>'Sub Order No' 
+          FROM ${ordersDynamic} 
+          INNER JOIN ${uploads} ON ${ordersDynamic.uploadId} = ${uploads.id}
+          WHERE ${uploads.uploadedBy} = ${userId} AND ${uploads.isCurrentVersion} = true
+        )`)
         .groupBy(payments.subOrderNo);
 
       paymentData.forEach(payment => {
         paymentStatusMap.set(payment.subOrderNo, payment.hasPayment);
       });
 
-      // Get static orders data
+      // Get static orders data (if any) - but this is likely empty for most users
       const staticOrdersData = await db
         .select({
           subOrderNo: orders.subOrderNo,
@@ -1202,9 +1288,15 @@ export class DatabaseStorage implements IStorage {
           discountedPrice: orders.discountedPrice,
           listedPrice: orders.listedPrice,
         })
-        .from(orders);
+        .from(orders)
+        .where(sql`${orders.subOrderNo} IN (
+          SELECT DISTINCT ${ordersDynamic.dynamicData}->>'Sub Order No' 
+          FROM ${ordersDynamic} 
+          INNER JOIN ${uploads} ON ${ordersDynamic.uploadId} = ${uploads.id}
+          WHERE ${uploads.uploadedBy} = ${userId} AND ${uploads.isCurrentVersion} = true
+        )`);
 
-      // Get dynamic orders data from current uploads
+      // Get dynamic orders data from user-specific current uploads
       const dynamicOrdersData = await db
         .select({
           subOrderNo: ordersDynamic.subOrderNo,
@@ -1213,6 +1305,7 @@ export class DatabaseStorage implements IStorage {
         .from(ordersDynamic)
         .innerJoin(uploads, and(
           eq(ordersDynamic.uploadId, uploads.id),
+          eq(uploads.uploadedBy, userId),
           eq(uploads.isCurrentVersion, true)
         ));
 
@@ -1422,10 +1515,16 @@ export class DatabaseStorage implements IStorage {
         totalOrdersUsedForAOV: delivered,
       };
 
-      // Cache the result
-      const currentUploads = await db.select().from(uploads).where(eq(uploads.isCurrentVersion, true));
+      // Cache the result with user-specific cache key
+      const currentUploads = await db
+        .select()
+        .from(uploads)
+        .where(and(
+          eq(uploads.uploadedBy, userId),
+          eq(uploads.isCurrentVersion, true)
+        ));
       await this.setCalculationCache({
-        cacheKey: 'orders_overview',
+        cacheKey: `orders_overview_${userId}`,
         calculationType: 'orders_overview',
         calculationResult: result,
         dependsOnUploads: currentUploads.map(u => u.id),
@@ -1610,28 +1709,38 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Live Dashboard Metrics Implementation
-  async getLiveDashboardMetrics(): Promise<LiveDashboardMetrics> {
+  async getLiveDashboardMetrics(userId: string): Promise<LiveDashboardMetrics> {
     // Try to get from cache first
-    const cached = await this.getCalculationCache('live_dashboard_metrics');
+    const cached = await this.getCalculationCache(`live_dashboard_metrics_${userId}`);
     if (cached && (Date.now() - new Date(cached.lastUpdated).getTime()) < 5 * 60 * 1000) {
       // Return cached result if less than 5 minutes old
       return cached.calculationResult as LiveDashboardMetrics;
     }
 
     // Calculate fresh metrics
-    return await this.calculateRealTimeMetrics();
+    return await this.calculateRealTimeMetrics(userId);
   }
 
-  async calculateRealTimeMetrics(): Promise<LiveDashboardMetrics> {
-    // Get current uploads to determine which data to use
-    const currentUploads = await db.select().from(uploads).where(eq(uploads.isCurrentVersion, true));
+  async calculateRealTimeMetrics(userId: string): Promise<LiveDashboardMetrics> {
+    // Get user-specific uploads
+    const currentUploads = await db
+      .select()
+      .from(uploads)
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true)
+      ));
     
     const [productsData] = await db
       .select({
         totalProducts: count(productsDynamic.id),
       })
       .from(productsDynamic)
-      .where(sql`${productsDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true AND file_type LIKE '%orders%')`);
+      .innerJoin(uploads, eq(productsDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true)
+      ));
 
     const [ordersData] = await db
       .select({
@@ -1639,9 +1748,13 @@ export class DatabaseStorage implements IStorage {
         totalSales: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'discountedPrice' AS DECIMAL))`,
       })
       .from(ordersDynamic)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true)
+      ));
 
-    // Calculate GST from products and orders
+    // Calculate GST from products and orders for user-specific data
     const [gstData] = await db
       .select({
         totalGST: sql<number>`
@@ -1652,10 +1765,14 @@ export class DatabaseStorage implements IStorage {
         `,
       })
       .from(ordersDynamic)
-      .leftJoin(productsDynamic, sql`${ordersDynamic.dynamicData}->>'sku' = ${productsDynamic.sku}`)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .leftJoin(productsDynamic, sql`${ordersDynamic.dynamicData}->>'sku' = ${productsDynamic.sku} AND ${productsDynamic.uploadId} = ${uploads.id}`)
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true)
+      ));
 
-    // Calculate profit/loss
+    // Calculate profit/loss for user-specific data
     const [profitData] = await db
       .select({
         totalCost: sql<number>`
@@ -1669,22 +1786,26 @@ export class DatabaseStorage implements IStorage {
         `,
       })
       .from(ordersDynamic)
-      .leftJoin(productsDynamic, sql`${ordersDynamic.dynamicData}->>'sku' = ${productsDynamic.sku}`)
-      .where(sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`);
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .leftJoin(productsDynamic, sql`${ordersDynamic.dynamicData}->>'sku' = ${productsDynamic.sku} AND ${productsDynamic.uploadId} = ${uploads.id}`)
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true)
+      ));
 
-    // Calculate trends (last 30 days)
+    // Calculate trends (last 30 days) for user-specific data
     const salesTrend = await db
       .select({
         date: sql<string>`DATE(CAST(${ordersDynamic.dynamicData}->>'orderDate' AS TIMESTAMP))`,
         value: sql<number>`SUM(CAST(${ordersDynamic.dynamicData}->>'discountedPrice' AS DECIMAL))`,
       })
       .from(ordersDynamic)
-      .where(
-        and(
-          sql`${ordersDynamic.uploadId} IN (SELECT id FROM uploads WHERE is_current_version = true)`,
-          sql`CAST(${ordersDynamic.dynamicData}->>'orderDate' AS TIMESTAMP) >= CURRENT_DATE - INTERVAL '30 days'`
-        )
-      )
+      .innerJoin(uploads, eq(ordersDynamic.uploadId, uploads.id))
+      .where(and(
+        eq(uploads.uploadedBy, userId),
+        eq(uploads.isCurrentVersion, true),
+        sql`CAST(${ordersDynamic.dynamicData}->>'orderDate' AS TIMESTAMP) >= CURRENT_DATE - INTERVAL '30 days'`
+      ))
       .groupBy(sql`DATE(CAST(${ordersDynamic.dynamicData}->>'orderDate' AS TIMESTAMP))`)
       .orderBy(sql`DATE(CAST(${ordersDynamic.dynamicData}->>'orderDate' AS TIMESTAMP))`);
 
@@ -1708,9 +1829,9 @@ export class DatabaseStorage implements IStorage {
       },
     };
 
-    // Cache the results
+    // Cache the results with user-specific key
     await this.setCalculationCache({
-      cacheKey: 'live_dashboard_metrics',
+      cacheKey: `live_dashboard_metrics_${userId}`,
       calculationType: 'dashboard_summary',
       calculationResult: metrics,
       dependsOnUploads: currentUploads.map(u => u.id),
@@ -1719,14 +1840,16 @@ export class DatabaseStorage implements IStorage {
     return metrics;
   }
 
-  async recalculateAllMetrics(triggerUploadId?: string): Promise<void> {
+  async recalculateAllMetrics(triggerUploadId?: string, userId?: string): Promise<void> {
     // Invalidate all cached calculations
     await db.delete(calculationCache);
     
-    // Recalculate main dashboard metrics
-    await this.calculateRealTimeMetrics();
+    // If userId is provided, recalculate metrics for that user
+    if (userId) {
+      await this.calculateRealTimeMetrics(userId);
+    }
     
-    console.log(`Recalculated all metrics${triggerUploadId ? ` triggered by upload ${triggerUploadId}` : ''}`);
+    console.log(`Recalculated all metrics${triggerUploadId ? ` triggered by upload ${triggerUploadId}` : ''}${userId ? ` for user ${userId}` : ''}`);
   }
 
   async getCurrentUploads(): Promise<Upload[]> {

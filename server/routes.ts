@@ -179,7 +179,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Dashboard routes
   app.get('/api/dashboard/summary', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const summary = await storage.getDashboardSummary();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      const summary = await storage.getDashboardSummary(userId);
       res.json(summary);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch dashboard summary' });
@@ -188,7 +192,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/dashboard/revenue-trend', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const revenueTrend = await storage.getRevenueTrend();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      const revenueTrend = await storage.getRevenueTrend(userId);
       res.json(revenueTrend);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch revenue trend' });
@@ -197,7 +205,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/dashboard/order-status', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const orderStatus = await storage.getOrderStatusDistribution();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      const orderStatus = await storage.getOrderStatusDistribution(userId);
       res.json(orderStatus);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch order status' });
@@ -207,7 +219,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Enhanced Dashboard Analytics Endpoints
   app.get('/api/dashboard/comprehensive-summary', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const summary = await storage.getComprehensiveFinancialSummary();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      const summary = await storage.getComprehensiveFinancialSummary(userId);
       res.json(summary);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch comprehensive financial summary' });
@@ -216,7 +232,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/dashboard/settlement-components', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const components = await storage.getSettlementComponents();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      const components = await storage.getSettlementComponents(userId);
       res.json(components);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch settlement components' });
@@ -225,7 +245,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/dashboard/earnings-overview', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const earnings = await storage.getEarningsOverview();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      const earnings = await storage.getEarningsOverview(userId);
       res.json(earnings);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch earnings overview' });
@@ -234,7 +258,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/dashboard/operational-costs', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const costs = await storage.getOperationalCosts();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      const costs = await storage.getOperationalCosts(userId);
       res.json(costs);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch operational costs' });
@@ -243,7 +271,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/dashboard/daily-volume', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const dailyVolume = await storage.getDailyVolumeAndAOV();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      const dailyVolume = await storage.getDailyVolumeAndAOV(userId);
       res.json(dailyVolume);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch daily volume data' });
@@ -252,7 +284,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/dashboard/top-products', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const topProducts = await storage.getTopPerformingProducts();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      const topProducts = await storage.getTopPerformingProducts(userId);
       res.json(topProducts);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch top products' });
@@ -261,7 +297,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/dashboard/top-returns', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const topReturns = await storage.getTopReturnProducts();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      const topReturns = await storage.getTopReturnProducts(userId);
       res.json(topReturns);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch top return products' });
@@ -271,7 +311,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Orders Overview Analytics (separate from Order Status chart data)
   app.get('/api/dashboard/orders-overview', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const ordersOverview = await storage.getOrdersOverview();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      const ordersOverview = await storage.getOrdersOverview(userId);
       res.json(ordersOverview);
     } catch (error) {
       console.error('Failed to fetch orders overview:', error);
@@ -282,7 +326,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Live Dashboard Metrics
   app.get('/api/dashboard/live-metrics', authenticateUser, async (req: Request, res: Response) => {
     try {
-      const liveMetrics = await storage.getLiveDashboardMetrics();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      const liveMetrics = await storage.getLiveDashboardMetrics(userId);
       res.json(liveMetrics);
     } catch (error) {
       console.error('Failed to fetch live dashboard metrics:', error);
@@ -292,7 +340,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/dashboard/recalculate', authenticateUser, async (req: Request, res: Response) => {
     try {
-      await storage.recalculateAllMetrics();
+      const userId = req.user?.dbId;
+      if (!userId) {
+        return res.status(401).json({ message: 'User authentication required' });
+      }
+      await storage.recalculateAllMetrics(undefined, userId);
       res.json({ message: 'Metrics recalculated successfully' });
     } catch (error) {
       console.error('Failed to recalculate metrics:', error);

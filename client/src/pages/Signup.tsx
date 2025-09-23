@@ -52,7 +52,7 @@ export default function Signup() {
       .then((result) => {
         if (result?.user) {
           toast({
-            title: "Welcome to MeeshoReconcile!",
+            title: "Welcome to ReconMe!",
             description: "Your account has been created successfully.",
           });
         }
@@ -71,7 +71,7 @@ export default function Signup() {
     try {
       await signUpWithEmail(data.email, data.password, data.name);
       toast({
-        title: "Welcome to MeeshoReconcile!",
+        title: "Welcome to ReconMe!",
         description: "Your account has been created successfully.",
       });
       // Explicit redirect to dashboard after successful signup
@@ -91,7 +91,7 @@ export default function Signup() {
     try {
       await signInWithGoogle();
       toast({
-        title: "Welcome to MeeshoReconcile!",
+        title: "Welcome to ReconMe!",
         description: "Your account has been created successfully.",
       });
       // Explicit redirect to dashboard after successful Google sign up
@@ -116,7 +116,7 @@ export default function Signup() {
               </svg>
             </div>
           </div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">MeeshoReconcile</h1>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">ReconMe</h1>
           <p className="text-slate-600">Smart Payment Reconciliation Platform</p>
         </div>
         
