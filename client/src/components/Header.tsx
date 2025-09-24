@@ -26,7 +26,7 @@ interface HeaderProps {
 export default function Header({ title, subtitle, rightContent }: HeaderProps) {
   const [location] = useLocation();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // Fetch usage data for mobile display
@@ -46,17 +46,15 @@ export default function Header({ title, subtitle, rightContent }: HeaderProps) {
 
   const handleLogout = async () => {
     try {
-      await logOut();
       toast({
-        title: "Signed out successfully",
-        description: "You have been logged out of your account.",
+        title: "Signing out...",
+        description: "Clearing your session data.",
       });
+      await logout();
     } catch (error) {
-      toast({
-        title: "Error signing out",
-        description: "There was a problem signing out. Please try again.",
-        variant: "destructive",
-      });
+      console.error('Logout error:', error);
+      // Force redirect even if logout fails
+      window.location.href = '/login';
     }
   };
 

@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { apiRequest } from '@/lib/queryClient';
+import { logOut } from '@/lib/firebase';
+import { queryClient } from '@/lib/queryClient';
 
 interface User {
   id: string;
@@ -16,6 +18,7 @@ interface AuthContextType {
   firebaseUser: FirebaseUser | null;
   loading: boolean;
   token: string | null;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,6 +28,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState<string | null>(null);
+
+  const logout = async () => {
+    try {
+      console.log('Starting logout process...');
+      
+      // Clear all React Query cache
+      queryClient.clear();
+      
+      // Clear localStorage
+      localStorage.clear();
+      
+      // Clear sessionStorage
+      sessionStorage.clear();
+      
+      // Clear IndexedDB (if any)
+      if ('indexedDB' in window) {
+        try {
+          const databases = await indexedDB.databases();
+          await Promise.all(
+            databases.map(db => {
+              if (db.name) {
+                return new Promise<void>((resolve, reject) => {
+                  const deleteReq = indexedDB.deleteDatabase(db.name!);
+                  deleteReq.onsuccess = () => resolve();
+                  deleteReq.onerror = () => reject(deleteReq.error);
+                });
+              }
+            })
+          );
+        } catch (error) {
+          console.warn('Failed to clear IndexedDB:', error);
+        }
+      }
+      
+      // Clear cookies (if any)
+      document.cookie.split(";").forEach(cookie => {
+        const eqPos = cookie.indexOf("=");
+        const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+      });
+      
+      // Sign out from Firebase
+      await logOut();
+      
+      // Clear component state
+      setUser(null);
+      setFirebaseUser(null);
+      setToken(null);
+      
+      console.log('Logout completed, forcing page reload...');
+      
+      // Force a hard refresh to ensure clean state
+      window.location.href = '/login';
+      
+    } catch (error) {
+      console.error('Error during logout:', error);
+      // Even if logout fails, force a page refresh to clear state
+      window.location.href = '/login';
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -66,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, firebaseUser, loading, token }}>
+    <AuthContext.Provider value={{ user, firebaseUser, loading, token, logout }}>
       {children}
     </AuthContext.Provider>
   );

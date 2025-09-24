@@ -26,7 +26,7 @@ const navigation = [
 
 export default function Sidebar() {
   const [location] = useLocation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { toast } = useToast();
 
   // Fetch usage data
@@ -46,17 +46,15 @@ export default function Sidebar() {
 
   const handleLogout = async () => {
     try {
-      await logOut();
       toast({
-        title: "Signed out successfully",
-        description: "You have been logged out of your account.",
+        title: "Signing out...",
+        description: "Clearing your session data.",
       });
+      await logout();
     } catch (error) {
-      toast({
-        title: "Error signing out",
-        description: "There was a problem signing out. Please try again.",
-        variant: "destructive",
-      });
+      console.error('Logout error:', error);
+      // Force redirect even if logout fails
+      window.location.href = '/login';
     }
   };
 
