@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -13,6 +13,7 @@ import Account from "@/pages/Account";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
 import NotFound from "@/pages/not-found";
+import { useEffect } from "react";
 
 function AppLayout({ children, showFooter = true }: { children: React.ReactNode; showFooter?: boolean }) {
   return (
@@ -45,6 +46,15 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AppRouter() {
   const { user, loading } = useAuth();
+  const [location, setLocation] = useLocation();
+
+  // Redirect authenticated users from login/signup pages to dashboard
+  useEffect(() => {
+    if (user && (location === '/login' || location === '/signup')) {
+      console.log('Redirecting authenticated user from', location, 'to dashboard');
+      setLocation('/');
+    }
+  }, [user, location, setLocation]);
 
   if (loading) {
     return (
@@ -58,10 +68,22 @@ function AppRouter() {
     <Switch>
       {/* Public routes */}
       <Route path="/login">
-        {user ? <Dashboard /> : <Login />}
+        {user ? (
+          <AppLayout>
+            <Dashboard />
+          </AppLayout>
+        ) : (
+          <Login />
+        )}
       </Route>
       <Route path="/signup">
-        {user ? <Dashboard /> : <Signup />}
+        {user ? (
+          <AppLayout>
+            <Dashboard />
+          </AppLayout>
+        ) : (
+          <Signup />
+        )}
       </Route>
       
       {/* Protected routes */}

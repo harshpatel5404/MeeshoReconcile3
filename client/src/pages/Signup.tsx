@@ -39,12 +39,7 @@ export default function Signup() {
     },
   });
 
-  // Redirect to dashboard if user is authenticated
-  useEffect(() => {
-    if (user) {
-      setLocation('/');
-    }
-  }, [user, setLocation]);
+  // Note: Redirect logic is handled at the router level in App.tsx
 
   // Handle redirect result on component mount
   useEffect(() => {

@@ -28,24 +28,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log('Auth state changed:', firebaseUser ? 'User logged in' : 'User logged out');
+      
       if (firebaseUser) {
         try {
           const idToken = await firebaseUser.getIdToken();
           setToken(idToken);
           
-          // Verify token with backend and get/create user
-          const response = await apiRequest('POST', '/api/auth/verify', { idToken });
-          const data = await response.json();
+          // Create user object from Firebase user data
+          const user: User = {
+            id: firebaseUser.uid,
+            firebaseUid: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            displayName: firebaseUser.displayName || undefined,
+            photoURL: firebaseUser.photoURL || undefined,
+          };
           
-          setUser(data.user);
+          console.log('Setting user:', user);
+          setUser(user);
           setFirebaseUser(firebaseUser);
         } catch (error) {
-          console.error('Auth verification failed:', error);
+          console.error('Auth token retrieval failed:', error);
           setUser(null);
           setFirebaseUser(null);
           setToken(null);
         }
       } else {
+        console.log('Clearing user state');
         setUser(null);
         setFirebaseUser(null);
         setToken(null);

@@ -32,12 +32,7 @@ export default function Login() {
     },
   });
 
-  // Redirect to dashboard if user is authenticated
-  useEffect(() => {
-    if (user) {
-      setLocation('/');
-    }
-  }, [user, setLocation]);
+  // Note: Redirect logic is handled at the router level in App.tsx
 
   // Handle redirect result on component mount
   useEffect(() => {
@@ -62,14 +57,18 @@ export default function Login() {
   const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
     try {
-      await signInWithEmail(data.email, data.password);
+      console.log('Attempting email login...');
+      const result = await signInWithEmail(data.email, data.password);
+      console.log('Email login successful:', result);
+      
       toast({
         title: "Welcome back!",
         description: "You have been signed in successfully.",
       });
-      // Explicit redirect to dashboard after successful login
-      setLocation('/');
+      
+      // Note: Redirect is handled by the router in App.tsx
     } catch (error: any) {
+      console.error('Email login failed:', error);
       toast({
         title: "Sign in failed",
         description: error.message || "Please check your credentials and try again.",
@@ -82,10 +81,18 @@ export default function Login() {
 
   const handleGoogleSignIn = async () => {
     try {
-      await signInWithGoogle();
-      // Explicit redirect to dashboard after successful Google sign in
-      setLocation('/');
+      console.log('Attempting Google login...');
+      const result = await signInWithGoogle();
+      console.log('Google login successful:', result);
+      
+      toast({
+        title: "Welcome back!",
+        description: "You have been signed in successfully.",
+      });
+      
+      // Note: Redirect is handled by the router in App.tsx
     } catch (error: any) {
+      console.error('Google login failed:', error);
       toast({
         title: "Sign in failed", 
         description: error.message || "Google sign in failed. Please try again.",

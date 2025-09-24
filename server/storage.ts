@@ -1841,15 +1841,34 @@ export class DatabaseStorage implements IStorage {
   }
 
   async recalculateAllMetrics(triggerUploadId?: string, userId?: string): Promise<void> {
-    // Invalidate all cached calculations
-    await db.delete(calculationCache);
-    
-    // If userId is provided, recalculate metrics for that user
-    if (userId) {
-      await this.calculateRealTimeMetrics(userId);
+    try {
+      console.log(`Starting metrics recalculation${triggerUploadId ? ` triggered by upload ${triggerUploadId}` : ''}${userId ? ` for user ${userId}` : ''}`);
+      
+      // Invalidate all cached calculations with error handling
+      try {
+        await db.delete(calculationCache);
+        console.log('Successfully cleared calculation cache');
+      } catch (cacheError) {
+        console.warn('Failed to clear calculation cache (non-critical):', cacheError);
+        // Continue execution even if cache clearing fails
+      }
+      
+      // If userId is provided, recalculate metrics for that user
+      if (userId) {
+        try {
+          await this.calculateRealTimeMetrics(userId);
+          console.log(`Successfully recalculated metrics for user ${userId}`);
+        } catch (metricsError) {
+          console.error(`Failed to recalculate metrics for user ${userId}:`, metricsError);
+          throw metricsError;
+        }
+      }
+      
+      console.log(`Completed metrics recalculation${triggerUploadId ? ` triggered by upload ${triggerUploadId}` : ''}${userId ? ` for user ${userId}` : ''}`);
+    } catch (error) {
+      console.error('Error in recalculateAllMetrics:', error);
+      throw new Error(`Failed to recalculate metrics: ${error instanceof Error ? error.message : String(error)}`);
     }
-    
-    console.log(`Recalculated all metrics${triggerUploadId ? ` triggered by upload ${triggerUploadId}` : ''}${userId ? ` for user ${userId}` : ''}`);
   }
 
   async getCurrentUploads(): Promise<Upload[]> {
