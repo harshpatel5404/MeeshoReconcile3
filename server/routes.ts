@@ -1,11 +1,11 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
-import { storage } from "./storage";
-import { verifyFirebaseToken } from "./services/firebase";
-import { FileProcessor } from "./services/fileProcessor";
-import { UsageTracker } from "./services/usageTracker";
-import { insertUserSchema, insertProductSchema, OrderDynamic } from "@shared/schema";
+import { storage } from "./storage.js";
+import { verifyFirebaseToken } from "./services/firebase.js";
+import { FileProcessor } from "./services/fileProcessor.js";
+import { UsageTracker } from "./services/usageTracker.js";
+import { insertUserSchema, insertProductSchema, OrderDynamic } from "../shared/schema.js";
 
 // Multer configuration for file uploads
 const upload = multer({
@@ -907,7 +907,7 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
       // Process orders through ENHANCED CSV processor with exact column mapping 
       // Only run this if dynamic processing succeeded to avoid conflicts
       if (recordsProcessed > 0) {
-        const { CSVProcessor } = await import('./services/csvProcessor');
+        const { CSVProcessor } = await import('./services/csvProcessor.js');
         const enhancedResult = await CSVProcessor.processOrdersCSV(buffer);
         if (enhancedResult.orders) {
           try {
@@ -956,7 +956,7 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
       
     } else if (fileType === 'payment_zip') {
       // Use ENHANCED ZIP processing method for 42-column XLSX files
-      const { ZIPProcessor } = await import('./services/zipProcessor');
+      const { ZIPProcessor } = await import('./services/zipProcessor.js');
       result = await ZIPProcessor.processPaymentZIP(buffer);
       if (result.payments) {
         await storage.bulkCreatePayments(result.payments);

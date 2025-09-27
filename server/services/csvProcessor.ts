@@ -1,6 +1,6 @@
 import { Readable } from 'stream';
 import csv from 'csv-parser';
-import { InsertOrder } from '@shared/schema';
+import { InsertOrder } from '../../shared/schema.js';
 
 export interface CSVProcessResult {
   orders: InsertOrder[];

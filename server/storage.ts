@@ -1,6 +1,5 @@
-import postgres from "postgres";
-import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, desc, asc, sql, count, sum, and, or, like, gte, lte, lt, inArray } from "drizzle-orm";
+import { db } from "./db.js";
 import { 
   users, products, orders, payments, reconciliations, uploads,
   productsDynamic, ordersDynamic, calculationCache,
@@ -22,17 +21,7 @@ import {
   type TopReturnsData,
   type OrdersOverview,
   type FileStructure, type ColumnMetadata, type LiveDashboardMetrics
-} from "@shared/schema";
-
-// Database Configuration
-const DATABASE_URL = process.env.DATABASE_URL;
-
-if (!DATABASE_URL) {
-  throw new Error("DATABASE_URL environment variable is required");
-}
-
-const client = postgres(DATABASE_URL, { prepare: false });
-const db = drizzle(client);
+} from "../shared/schema.js";
 
 export interface IStorage {
   // Users

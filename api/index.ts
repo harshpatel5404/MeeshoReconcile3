@@ -1,11 +1,14 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import multer from "multer";
-import { storage } from "../server/storage";
-import { verifyFirebaseToken } from "../server/services/firebase";
-import { FileProcessor } from "../server/services/fileProcessor";
-import { UsageTracker } from "../server/services/usageTracker";
-import { insertUserSchema, insertProductSchema, OrderDynamic } from "../shared/schema";
+import { DatabaseStorage } from "../server/storage.js";
+import { verifyFirebaseToken } from "../server/services/firebase.js";
+import { FileProcessor } from "../server/services/fileProcessor.js";
+import { UsageTracker } from "../server/services/usageTracker.js";
+import { insertUserSchema, insertProductSchema, type OrderDynamic } from "../shared/schema.js";
+
+// Initialize storage instance
+const storage = new DatabaseStorage();
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -140,32 +143,126 @@ async function updateOrdersWithPaymentData(payments: any[]) {
 // Auth middleware
 async function authenticateUser(req: Request, res: Response, next: any) {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      return res.status(401).json({ message: 'No token provided' });
+    console.log('Authentication middleware called for:', req.path);
+    
+    // Check for Authorization header
+    const authHeader = req.headers.authorization;
+    console.log('Authorization header present:', !!authHeader);
+    
+    if (!authHeader) {
+      console.log('No authorization header found');
+      return res.status(401).json({ 
+        message: 'No authorization header provided',
+        code: 'NO_AUTH_HEADER'
+      });
     }
 
+    // Extract token from Bearer format
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+      console.log('No token found in authorization header');
+      return res.status(401).json({ 
+        message: 'No token provided in authorization header',
+        code: 'NO_TOKEN'
+      });
+    }
+
+    console.log('Token extracted, length:', token.length);
+
+    // Verify Firebase token
     const decodedToken = await verifyFirebaseToken(token);
+    console.log('Token verified for user:', decodedToken.uid);
     
     // Get the database user record
     const user = await storage.getUserByFirebaseUid(decodedToken.uid);
     if (!user) {
-      return res.status(401).json({ message: 'User not found in database' });
+      console.log('User not found in database for UID:', decodedToken.uid);
+      return res.status(401).json({ 
+        message: 'User not found in database',
+        code: 'USER_NOT_FOUND'
+      });
     }
+
+    console.log('User found in database:', user.id);
 
     req.user = {
       ...decodedToken,
       dbId: user.id // Add database ID to user object
     };
+    
     next();
   } catch (error) {
-    res.status(401).json({ message: 'Invalid token' });
+    console.error('Authentication error:', error);
+    
+    // Provide specific error messages
+    let message = 'Authentication failed';
+    let code = 'AUTH_FAILED';
+    
+    if (error instanceof Error) {
+      if (error.message.includes('Token expired')) {
+        message = 'Token expired - please log in again';
+        code = 'TOKEN_EXPIRED';
+      } else if (error.message.includes('Invalid token')) {
+        message = 'Invalid token - please log in again';
+        code = 'INVALID_TOKEN';
+      } else if (error.message.includes('Firebase')) {
+        message = 'Firebase authentication error';
+        code = 'FIREBASE_ERROR';
+      }
+    }
+    
+    res.status(401).json({ 
+      message,
+      code,
+      error: process.env.NODE_ENV === 'development' ? 'error?.message' : undefined
+    });
   }
 }
 
 // Basic health check route
 app.get('/api/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    message: 'API is working correctly',
+    version: '1.0.0'
+  });
+});
+
+// Root route for testing
+app.get('/api', (req: Request, res: Response) => {
+  res.json({ 
+    message: 'Meesho Reconcile API is running',
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    firebaseProject: process.env.FIREBASE_PROJECT_ID || 'reconme-fbee1'
+  });
+});
+
+// Debug auth endpoint
+app.get('/api/debug/auth', (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  res.json({
+    hasAuthHeader: !!authHeader,
+    authHeaderLength: authHeader?.length || 0,
+    authHeaderPrefix: authHeader?.substring(0, 20) + '...' || 'none',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Test protected endpoint
+app.get('/api/test/protected', authenticateUser, (req: Request, res: Response) => {
+  res.json({
+    message: 'Authentication successful!',
+    user: {
+      uid: req.user?.uid,
+      email: req.user?.email,
+      dbId: req.user?.dbId
+    },
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Auth routes
@@ -913,7 +1010,7 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
       // Process orders through ENHANCED CSV processor with exact column mapping 
       // Only run this if dynamic processing succeeded to avoid conflicts
       if (recordsProcessed > 0) {
-        const { CSVProcessor } = await import('../server/services/csvProcessor');
+        const { CSVProcessor } = await import('../server/services/csvProcessor.js');
         const enhancedResult = await CSVProcessor.processOrdersCSV(buffer);
         if (enhancedResult.orders) {
           try {
@@ -962,7 +1059,7 @@ async function processFileAsync(uploadId: string, buffer: Buffer, fileType: stri
       
     } else if (fileType === 'payment_zip') {
       // Use ENHANCED ZIP processing method for 42-column XLSX files
-      const { ZIPProcessor } = await import('../server/services/zipProcessor');
+      const { ZIPProcessor } = await import('../server/services/zipProcessor.js');
       result = await ZIPProcessor.processPaymentZIP(buffer);
       if (result.payments) {
         await storage.bulkCreatePayments(result.payments);

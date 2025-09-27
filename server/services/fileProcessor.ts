@@ -2,14 +2,14 @@ import csv from 'csv-parser';
 import * as xlsx from 'xlsx';
 import AdmZip from 'adm-zip';
 import { Readable } from 'stream';
-import { storage } from '../storage';
+import { storage } from '../storage.js';
 import { 
   type InsertOrder, type InsertPayment, 
   type InsertOrderDynamic, type InsertProductDynamic,
   type FileStructure, type ColumnMetadata 
-} from '@shared/schema';
-import { CSVProcessor } from './csvProcessor';
-import { ZIPProcessor } from './zipProcessor';
+} from '../../shared/schema.js';
+import { CSVProcessor } from './csvProcessor.js';
+import { ZIPProcessor } from './zipProcessor.js';
 
 export interface ProcessedFile {
   orders?: InsertOrder[];

@@ -1,6 +1,6 @@
 import AdmZip from 'adm-zip';
 import * as XLSX from 'xlsx';
-import { InsertPayment } from '@shared/schema';
+import { InsertPayment } from '../../shared/schema.js';
 
 export interface ZIPProcessResult {
   payments: InsertPayment[];

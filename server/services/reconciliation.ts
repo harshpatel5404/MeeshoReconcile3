@@ -1,5 +1,5 @@
-import { storage } from '../storage';
-import { type InsertReconciliation } from '@shared/schema';
+import { storage } from '../storage.js';
+import { type InsertReconciliation } from '../../shared/schema.js';
 
 export class ReconciliationEngine {
   static async runReconciliation(): Promise<{
